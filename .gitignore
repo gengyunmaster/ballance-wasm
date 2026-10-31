@@ -1,0 +1,11 @@
+/Ballance/
+/Ballance.7z
+/ballance-wasm.tar.gz
+/assets/
+/upstream/
+/.deps/
+/.tools/
+/build/
+/dist/
+/node_modules/
+/test-results/

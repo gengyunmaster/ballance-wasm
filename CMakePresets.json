@@ -1,0 +1,45 @@
+{
+  "version": 6,
+  "cmakeMinimumRequired": {
+    "major": 3,
+    "minor": 25,
+    "patch": 0
+  },
+  "configurePresets": [
+    {
+      "name": "wasm-release",
+      "displayName": "WebAssembly Release",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build/wasm-release",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "CMAKE_INSTALL_PREFIX": "${sourceDir}/build/wasm-release/stage",
+        "CMAKE_TOOLCHAIN_FILE": "${sourceDir}/.tools/emsdk/upstream/emscripten/cmake/Modules/Platform/Emscripten.cmake",
+        "EMSCRIPTEN_SYSTEM_PROCESSOR": "wasm32",
+        "CMAKE_C_FLAGS": "-msimd128 -pthread",
+        "CMAKE_CXX_FLAGS": "-msimd128 -pthread",
+        "SDL3_DIR": "${sourceDir}/.deps/sdl-wasm/lib/cmake/SDL3",
+        "BALLANCE_TARGET_ARCH": "wasm32",
+        "BALLANCE_ASSETS_ROOT": "${sourceDir}/Ballance",
+        "BALLANCE_AUTO_DETECT_ASSETS": "OFF",
+        "BUILD_TESTING": "OFF",
+        "VXMATH_SIMD_PROVIDER": "SIMDE",
+        "VXMATH_BUILD_TESTS": "OFF",
+        "CK2_BUILD_TESTS": "OFF",
+        "CKRE_BUILD_TESTS": "OFF",
+        "CKRE_BUILD_BGFX_RASTERIZER": "ON",
+        "CKRE_BUILD_SDL_GPU_RASTERIZER": "OFF",
+        "CKRE_BGFX_OPENGLES_VERSION": "30",
+        "CKBB_BUILD_TESTS": "OFF",
+        "CKPLUGINS_BUILD_TESTS": "OFF",
+        "PLAYER_BUILD_TESTS": "OFF"
+      }
+    }
+  ],
+  "buildPresets": [
+    {
+      "name": "wasm-release",
+      "configurePreset": "wasm-release"
+    }
+  ]
+}

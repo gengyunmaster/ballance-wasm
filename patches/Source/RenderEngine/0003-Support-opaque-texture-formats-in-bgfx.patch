@@ -1,0 +1,188 @@
+diff --git a/src/CKRasterizer/CKBgfxRasterizer/Native/CKBgfxInternal.cpp b/src/CKRasterizer/CKBgfxRasterizer/Native/CKBgfxInternal.cpp
+index 0c0675a4..ea6f34de 100644
+--- a/src/CKRasterizer/CKBgfxRasterizer/Native/CKBgfxInternal.cpp
++++ b/src/CKRasterizer/CKBgfxRasterizer/Native/CKBgfxInternal.cpp
+@@ -403,7 +403,9 @@ bool CKBgfxTryTextureFormat(VX_PIXELFORMAT pf, bgfx::TextureFormat::Enum &result
+     switch (pf)
+     {
+     case _32_ARGB8888: result = bgfx::TextureFormat::BGRA8; break;
++    case _32_RGB888:   result = bgfx::TextureFormat::BGRA8; break;
+     case _32_ABGR8888: result = bgfx::TextureFormat::RGBA8; break;
++    case _32_BGR888:   result = bgfx::TextureFormat::RGBA8; break;
+     case _24_BGR888:   result = bgfx::TextureFormat::RGB8; break;
+     case _16_RGB565:   result = bgfx::TextureFormat::B5G6R5; break;
+     case _16_BGR565:   result = bgfx::TextureFormat::R5G6B5; break;
+diff --git a/src/CKRasterizer/CKBgfxRasterizer/Native/CKBgfxInternal.h b/src/CKRasterizer/CKBgfxRasterizer/Native/CKBgfxInternal.h
+index 234b42d8..e536916b 100644
+--- a/src/CKRasterizer/CKBgfxRasterizer/Native/CKBgfxInternal.h
++++ b/src/CKRasterizer/CKBgfxRasterizer/Native/CKBgfxInternal.h
+@@ -51,6 +51,10 @@ bool CKBgfxTryAttribType(CK_VERTEX_ATTRIB_TYPE Type, bgfx::AttribType::Enum &Res
+ bool CKBgfxTryTextureFormat(VX_PIXELFORMAT Format, bgfx::TextureFormat::Enum &Result);
+ bool CKBgfxTryPixelFormat(bgfx::TextureFormat::Enum Format, VX_PIXELFORMAT &Result);
+ bool CKBgfxTryTextureStorageFormat(VX_PIXELFORMAT Format, bgfx::TextureFormat::Enum &Result);
++void CKBgfxConvertTextureRows(const VxImageDescEx &Data,
++                              uint16_t Width, uint16_t Height, CKDWORD Pitch,
++                              CKBYTE *Destination, CKDWORD DestinationPitch,
++                              bool SwapRedBlue);
+ CKBOOL CKBgfxConvertBumpLuminancePixels(VX_PIXELFORMAT Format,
+                                         const void *Source, CKDWORD SourcePitch,
+                                         CKDWORD Width, CKDWORD Height,
+diff --git a/src/CKRasterizer/CKBgfxRasterizer/Native/CKBgfxTextures.cpp b/src/CKRasterizer/CKBgfxRasterizer/Native/CKBgfxTextures.cpp
+index 230c97cc..671fef99 100644
+--- a/src/CKRasterizer/CKBgfxRasterizer/Native/CKBgfxTextures.cpp
++++ b/src/CKRasterizer/CKBgfxRasterizer/Native/CKBgfxTextures.cpp
+@@ -29,6 +29,47 @@ static uint32_t FirstDword(const void *data, uint32_t size)
+     return value;
+ }
+ 
++static bool CKBgfxNeedsRedBlueSwap(VX_PIXELFORMAT source, bgfx::TextureFormat::Enum destination)
++{
++    if (source == _32_ARGB8888 || source == _32_RGB888)
++        return destination == bgfx::TextureFormat::RGBA8;
++    if (source == _32_ABGR8888 || source == _32_BGR888)
++        return destination == bgfx::TextureFormat::BGRA8;
++    return false;
++}
++
++void CKBgfxConvertTextureRows(const VxImageDescEx &data,
++                              uint16_t width, uint16_t height, CKDWORD pitch,
++                              CKBYTE *destination, CKDWORD destinationPitch,
++                              bool swapRedBlue)
++{
++    const CKDWORD rowBytes = (CKDWORD)width * (swapRedBlue ? 4u : (CKDWORD)data.BitsPerPixel / 8u);
++    for (uint16_t row = 0; row < height; ++row) {
++        const CKBYTE *source = static_cast<const CKBYTE *>(data.Image) + row * pitch;
++        if (!swapRedBlue) {
++            memcpy(destination, source, rowBytes);
++        } else {
++            for (uint16_t column = 0; column < width; ++column) {
++                destination[column * 4] = source[column * 4 + 2];
++                destination[column * 4 + 1] = source[column * 4 + 1];
++                destination[column * 4 + 2] = source[column * 4];
++                destination[column * 4 + 3] = source[column * 4 + 3];
++            }
++        }
++        destination += destinationPitch;
++    }
++}
++
++static const bgfx::Memory *CKBgfxCopyTextureRows(const VxImageDescEx &data,
++                                                 uint16_t width, uint16_t height,
++                                                 CKDWORD pitch, CKDWORD rowBytes,
++                                                 bool swapRedBlue)
++{
++    const bgfx::Memory *memory = bgfx::alloc(rowBytes * height);
++    CKBgfxConvertTextureRows(data, width, height, pitch, memory->data, rowBytes, swapRedBlue);
++    return memory;
++}
++
+ static bool CKBgfxCanGenerateMipMaps(const VxImageDescEx *desc)
+ {
+     return desc &&
+@@ -274,7 +315,9 @@ CKBOOL CKBgfxRasterizerContext::UpdateGeneratedMipMaps(CKBgfxTextureRecord *rec,
+         CKDWORD mipRowBytes = mipDesc.BytesPerLine > 0
+             ? (CKDWORD)mipDesc.BytesPerLine
+             : (CKDWORD)mipW * mipBpp / 8;
+-        const bgfx::Memory *mipMem = bgfx::copy(mipDesc.Image, mipRowBytes * mipH);
++        const bgfx::Memory *mipMem = CKBgfxCopyTextureRows(
++            mipDesc, mipW, mipH, mipRowBytes, mipRowBytes,
++            CKBgfxNeedsRedBlueSwap(rec->PixelFormat, rec->Format));
+         if (UploadTextureOrdered(rec->Handle, rec->Format,
+                                  level, 0, 0, 0, mipW, mipH,
+                                  mipMem) != CK_OK) {
+@@ -320,6 +363,12 @@ CKERROR CKBgfxRasterizerContext::CreateTexture(const CKTextureDesc *Desc,
+     bgfx::TextureFormat::Enum fmt;
+     if (!CKBgfxTryTextureStorageFormat(pf, fmt))
+         return CKERR_INVALIDPARAMETER;
++    if (!cubeRequested && !volumeRequested &&
++        (m_NativeFormatCaps[fmt] & BGFX_CAPS_FORMAT_TEXTURE_2D) == 0 &&
++        (m_NativeFormatCaps[bgfx::TextureFormat::RGBA8] & BGFX_CAPS_FORMAT_TEXTURE_2D) != 0 &&
++        CKBgfxNeedsRedBlueSwap(pf, bgfx::TextureFormat::RGBA8)) {
++        fmt = bgfx::TextureFormat::RGBA8;
++    }
+     const CKBOOL bumpLuminance = CKBgfxIsBumpLuminanceFormat(pf) ? TRUE : FALSE;
+     if (bumpLuminance &&
+         (cubeRequested || volumeRequested ||
+@@ -385,7 +434,7 @@ CKERROR CKBgfxRasterizerContext::CreateTexture(const CKTextureDesc *Desc,
+ 
+     const bgfx::Memory *mem = NULL;
+     CKDWORD copiedBytes = 0;
+-    if (Data && Data->Image && !uploadInitialAfterCreate)
++    if (Data && Data->Image && !uploadInitialAfterCreate && !CKBgfxNeedsRedBlueSwap(pf, fmt))
+     {
+         CKDWORD bpp = (Data->BitsPerPixel > 0)
+             ? Data->BitsPerPixel
+@@ -533,6 +582,11 @@ CKERROR CKBgfxRasterizerContext::CreateTexture(const CKTextureDesc *Desc,
+                     }
+                     baseMem = bgfx::copy(converted, baseInfo.storageSize);
+                     VxFree(converted);
++                } else if (CKBgfxNeedsRedBlueSwap(pf, fmt)) {
++                    const CKDWORD pitch = Data->BytesPerLine > 0
++                        ? (CKDWORD)Data->BytesPerLine : (CKDWORD)w * 4u;
++                    baseMem = CKBgfxCopyTextureRows(*Data, w, h, pitch,
++                                                    baseInfo.storageSize, true);
+                 } else {
+                     baseMem = bgfx::copy(Data->Image, baseInfo.storageSize);
+                 }
+@@ -582,7 +636,22 @@ CKERROR CKBgfxRasterizerContext::CreateTexture(const CKTextureDesc *Desc,
+         s_CreateTextureLogCount++;
+     }
+ 
+-    if (uploadInitialAfterCreate) {
++    if (Data && Data->Image && CKBgfxNeedsRedBlueSwap(pf, fmt)) {
++        CKDWORD sourceOffset = 0;
++        for (CKDWORD mip = 0; mip < rec->MipCount; ++mip) {
++            VxImageDescEx mipData = *Data;
++            mipData.Width = XMax(1, Data->Width >> mip);
++            mipData.Height = XMax(1, Data->Height >> mip);
++            mipData.BytesPerLine = mipData.Width * 4;
++            mipData.Image = const_cast<CKBYTE *>(static_cast<const CKBYTE *>(Data->Image) + sourceOffset);
++            const CKERROR uploadResult = UpdateTexture(texture, mip, 0, NULL, &mipData);
++            if (uploadResult != CK_OK) {
++                DestroyObject(texture, CKRST_OBJ_TEXTURE);
++                return uploadResult;
++            }
++            sourceOffset += mipData.BytesPerLine * mipData.Height;
++        }
++    } else if (uploadInitialAfterCreate) {
+         CKERROR uploadResult = UpdateTexture(texture, 0, 0, NULL, Data);
+         if (uploadResult != CK_OK) {
+             DestroyObject(texture, CKRST_OBJ_TEXTURE);
+@@ -704,7 +773,7 @@ CKERROR CKBgfxRasterizerContext::UploadTextureOrdered(bgfx::TextureHandle textur
+     CKDWORD mip, CKDWORD x, CKDWORD y, CKDWORD layer, CKDWORD width, CKDWORD height,
+     const bgfx::Memory *data, CKBOOL cube, CKBOOL volume)
+ {
+-    if (!m_FrameInProgress) {
++    if (!m_FrameInProgress || !(m_Caps.Features & CKRST_DEVCAPS_BLIT)) {
+         if (cube) bgfx::updateTextureCube(texture, 0, (uint8_t)layer, (uint8_t)mip,
+                                          (uint16_t)x, (uint16_t)y, (uint16_t)width, (uint16_t)height, data);
+         else if (volume) bgfx::updateTexture3D(texture, (uint8_t)mip, (uint16_t)x, (uint16_t)y,
+@@ -908,23 +977,17 @@ CKERROR CKBgfxRasterizerContext::UpdateTexture(CKDWORD Texture, CKDWORD Mip,
+                      SampleBytesChecksum(Data->Image, sampleSize));
+             s_UpdateTextureLogCount++;
+         }
+-        if (pitch == rowBytes)
++        const bool swapRedBlue = CKBgfxNeedsRedBlueSwap(rec->PixelFormat, rec->Format);
++        if (pitch == rowBytes && !swapRedBlue)
+         {
+             mem = bgfx::copy(Data->Image, rowBytes * h);
+-            if (updateSamplerBase)
+-                samplerBaseMem = bgfx::copy(Data->Image, rowBytes * h);
+         }
+         else
+         {
+-            mem = bgfx::alloc(rowBytes * h);
+-            for (uint16_t row = 0; row < h; ++row)
+-                memcpy(mem->data + row * rowBytes, (CKBYTE *)Data->Image + row * pitch, rowBytes);
+-            if (updateSamplerBase) {
+-                samplerBaseMem = bgfx::alloc(rowBytes * h);
+-                for (uint16_t row = 0; row < h; ++row)
+-                    memcpy(samplerBaseMem->data + row * rowBytes, (CKBYTE *)Data->Image + row * pitch, rowBytes);
+-            }
++            mem = CKBgfxCopyTextureRows(*Data, w, h, pitch, rowBytes, swapRedBlue);
+         }
++        if (updateSamplerBase)
++            samplerBaseMem = bgfx::copy(mem->data, mem->size);
+     }
+ 
+     ++m_BgfxFrameTextureUploads;

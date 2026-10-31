@@ -1,0 +1,28 @@
+diff --git a/Narratives/Behaviors/ObjectLoader.cpp b/Narratives/Behaviors/ObjectLoader.cpp
+index e08777f..82ff587 100644
+--- a/Narratives/Behaviors/ObjectLoader.cpp
++++ b/Narratives/Behaviors/ObjectLoader.cpp
+@@ -1,5 +1,9 @@
+ #include "CKAll.h"
+ 
++#ifdef __EMSCRIPTEN__
++#include <emscripten.h>
++#endif
++
+ CKERROR CreateObjectLoaderProto(CKBehaviorPrototype **pproto);
+ int ObjectLoader(const CKBehaviorContext &context);
+ CKERROR ObjectLoaderCB(const CKBehaviorContext &behcontext);
+@@ -223,6 +227,13 @@ int ObjectLoader(const CKBehaviorContext &behcontext)
+ 
+         DeleteCKObjectArray(array);
+         beh->SetOutputParameterObject(1, masterobject);
++#ifdef __EMSCRIPTEN__
++        EM_ASM({
++            globalThis.dispatchEvent?.(new CustomEvent("ballance:object-loaded", {
++                detail: UTF8ToString($0),
++            }));
++        }, filename.Str());
++#endif
+     }
+ 
+     // Unloading

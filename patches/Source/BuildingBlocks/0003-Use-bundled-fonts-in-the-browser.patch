@@ -1,0 +1,15 @@
+diff --git a/Interface/CKStbFontBackend.cpp b/Interface/CKStbFontBackend.cpp
+index 79bc69b..a843af6 100644
+--- a/Interface/CKStbFontBackend.cpp
++++ b/Interface/CKStbFontBackend.cpp
+@@ -479,6 +479,10 @@ void CKStbDefaultFontDirectories(XClassArray<XString> &directories)
+ {
+     directories.Clear();
+ 
++#if defined(__EMSCRIPTEN__)
++    AddDirectory(directories, XString("/Fonts"));
++#endif
++
+ #if defined(__APPLE__)
+     AddDirectory(directories, XString("/System/Library/Fonts"));
+     AddDirectory(directories, XString("/System/Library/Fonts/Supplemental"));

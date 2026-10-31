@@ -1,0 +1,71 @@
+diff --git a/tests/rasterizers/test_bgfx_rasterizer.cpp b/tests/rasterizers/test_bgfx_rasterizer.cpp
+index 77a8a9f2..ba8d69da 100644
+--- a/tests/rasterizers/test_bgfx_rasterizer.cpp
++++ b/tests/rasterizers/test_bgfx_rasterizer.cpp
+@@ -742,6 +742,41 @@ static void TestDebugOverlayViewAllocation()
+                 "overlay second line describes the pass model");
+ }
+ 
++static void TestTextureRowConversion()
++{
++    TEST_SECTION("Texture Row Conversion");
++
++    const CKBYTE source[] = {
++        10, 20, 30, 255, 40, 50, 60, 128,
++        70, 80, 90, 255, 100, 110, 120, 128,
++    };
++    const CKBYTE expected[] = {
++        30, 20, 10, 255, 60, 50, 40, 128,
++        90, 80, 70, 255, 120, 110, 100, 128,
++    };
++    VxImageDescEx desc = {};
++    desc.Image = const_cast<CKBYTE *>(source);
++    desc.BitsPerPixel = 32;
++    CKBYTE converted[sizeof(source)] = {};
++    CKBgfxConvertTextureRows(desc, 2, 2, 8, converted, 8, true);
++    TEST_ASSERT(memcmp(converted, expected, sizeof(expected)) == 0,
++                "contiguous BGRA rows become RGBA");
++
++    const CKBYTE paddedSource[] = {
++        10, 20, 30, 255, 40, 50, 60, 128, 0, 0, 0, 0,
++        70, 80, 90, 255, 100, 110, 120, 128, 0, 0, 0, 0,
++    };
++    memset(converted, 0, sizeof(converted));
++    CKBgfxConvertTextureRows(desc, 2, 2, 8, converted, 8, false);
++    TEST_ASSERT(memcmp(converted, source, sizeof(source)) == 0,
++                "contiguous rows retain their bytes without conversion");
++    desc.Image = const_cast<CKBYTE *>(paddedSource);
++    memset(converted, 0, sizeof(converted));
++    CKBgfxConvertTextureRows(desc, 2, 2, 12, converted, 8, true);
++    TEST_ASSERT(memcmp(converted, expected, sizeof(expected)) == 0,
++                "row conversion respects source padding");
++}
++
+ // ============================================================================
+ // Exact pixel-format mapping
+ // ============================================================================
+@@ -784,8 +819,15 @@ static void TestExactPixelFormatMapping()
+                     "exact pixel-format mapping round-trips");
+     }
+ 
++    bgfx::TextureFormat::Enum opaqueFormat = bgfx::TextureFormat::Count;
++    TEST_ASSERT(CKBgfxTryTextureFormat(_32_RGB888, opaqueFormat) &&
++                    opaqueFormat == bgfx::TextureFormat::BGRA8,
++                "opaque RGB32 uses compatible BGRA storage");
++    TEST_ASSERT(CKBgfxTryTextureFormat(_32_BGR888, opaqueFormat) &&
++                    opaqueFormat == bgfx::TextureFormat::RGBA8,
++                "opaque BGR32 uses compatible RGBA storage");
++
+     const VX_PIXELFORMAT incompatibleFormats[] = {
+-        _32_RGB888,
+         _32_BGRA8888,
+         _32_RGBA8888,
+         _24_RGB888,
+@@ -1062,6 +1104,7 @@ int main()
+     TestDrawMapTraceBindingOrder();
+     TestPersistentCacheCallback();
+     TestDebugOverlayViewAllocation();
++    TestTextureRowConversion();
+     TestExactPixelFormatMapping();
+     TestGenerationCheckedResourceTable();
+ 

@@ -1,0 +1,36 @@
+diff --git a/src/VxWindowFunctionsSDL3.cpp b/src/VxWindowFunctionsSDL3.cpp
+index 9c4983a..b9c0f23 100644
+--- a/src/VxWindowFunctionsSDL3.cpp
++++ b/src/VxWindowFunctionsSDL3.cpp
+@@ -642,6 +642,7 @@ XBOOL VxScreenToClient(WIN_HANDLE Win, CKPOINT *pt) {
+     if (!pt)
+         return FALSE;
+ 
++#ifndef __EMSCRIPTEN__
+     SDL_Window *window = VxAsSDLWindow(Win);
+     if (window) {
+         int wx, wy;
+@@ -651,6 +652,7 @@ XBOOL VxScreenToClient(WIN_HANDLE Win, CKPOINT *pt) {
+             return TRUE;
+         }
+     }
++#endif
+     return FALSE;
+ }
+ 
+@@ -658,6 +660,7 @@ XBOOL VxClientToScreen(WIN_HANDLE Win, CKPOINT *pt) {
+     if (!pt)
+         return FALSE;
+ 
++#ifndef __EMSCRIPTEN__
+     SDL_Window *window = VxAsSDLWindow(Win);
+     if (window) {
+         int wx, wy;
+@@ -667,6 +670,7 @@ XBOOL VxClientToScreen(WIN_HANDLE Win, CKPOINT *pt) {
+             return TRUE;
+         }
+     }
++#endif
+     return FALSE;
+ }
+ 

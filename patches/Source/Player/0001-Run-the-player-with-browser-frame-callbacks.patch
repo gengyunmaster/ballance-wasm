@@ -1,0 +1,127 @@
+diff --git a/src/GamePlayer.cpp b/src/GamePlayer.cpp
+index 4ffa776..86f8de5 100644
+--- a/src/GamePlayer.cpp
++++ b/src/GamePlayer.cpp
+@@ -1,4 +1,4 @@
+-﻿#include "GamePlayer.h"
++#include "GamePlayer.h"
+ #include "PlayerOptions.h"
+ 
+ #include <ctype.h>
+@@ -10,6 +10,10 @@
+ #include <SDL3/SDL_main.h>
+ #include <SDL3/SDL_video.h>
+ 
++#ifdef __EMSCRIPTEN__
++#include <emscripten.h>
++#endif
++
+ #ifdef BALLANCE_STATIC_MODULES
+ #include "StaticPlugins.h"
+ #endif
+@@ -382,10 +386,34 @@ bool CGamePlayer::Load(const char *filename)
+     return FinishLoad(filename, resolvedFile.CStr());
+ }
+ 
++bool CGamePlayer::HandleMouseClick(void *data, SDL_Event *event)
++{
++    if (event->type == SDL_EVENT_MOUSE_BUTTON_DOWN && event->button.button == SDL_BUTTON_LEFT)
++        static_cast<CGamePlayer *>(data)->OnClick(event->button.clicks >= 2);
++    return true;
++}
++
++#ifdef __EMSCRIPTEN__
++static void RunGamePlayerFrame(void *data)
++{
++    CGamePlayer *player = static_cast<CGamePlayer *>(data);
++    if (!player->Update())
++    {
++        emscripten_cancel_main_loop();
++        player->Shutdown();
++    }
++}
++#endif
++
+ void CGamePlayer::Run()
+ {
++    SDL_AddEventWatch(CGamePlayer::HandleMouseClick, this);
++#ifdef __EMSCRIPTEN__
++    emscripten_set_main_loop_arg(RunGamePlayerFrame, this, 0, 1);
++#else
+     while (Update())
+         continue;
++#endif
+ }
+ 
+ bool CGamePlayer::Update()
+@@ -466,6 +494,19 @@ bool CGamePlayer::Update()
+ 
+ void CGamePlayer::Process()
+ {
++    if (!m_RenderContext->GetAttachedCamera())
++    {
++        CKScene *scene = m_CKContext->GetCurrentScene();
++        CKCamera *camera = scene ? scene->GetStartingCamera() : NULL;
++        if (!camera)
++        {
++            const XObjectPointerArray cameras = m_CKContext->GetObjectListByType(CKCID_CAMERA, TRUE);
++            if (cameras.Size() != 0)
++                camera = (CKCamera *)cameras[0];
++        }
++        if (camera)
++            m_RenderContext->AttachViewpointToCamera(camera);
++    }
+     m_CKContext->Process();
+ }
+ 
+@@ -476,6 +517,8 @@ void CGamePlayer::Render()
+ 
+ void CGamePlayer::Shutdown()
+ {
++    SDL_RemoveEventWatch(CGamePlayer::HandleMouseClick, this);
++
+     if (m_State != eInitial && !m_PersistentConfig.SaveToIni())
+         CLogger::Get().Error("Failed to save config: %s", m_PersistentConfig.GetPath(eConfigPath));
+ 
+@@ -1583,6 +1626,15 @@ void CGamePlayer::OnClick(bool dblClk)
+     SDL_GetMouseState(&mouseX, &mouseY);
+     int pickX = static_cast<int>(mouseX);
+     int pickY = static_cast<int>(mouseY);
++    int windowWidth = 0;
++    int windowHeight = 0;
++    if (m_SdlWindow && m_RenderContext &&
++        SDL_GetWindowSizeInPixels(m_SdlWindow, &windowWidth, &windowHeight) &&
++        windowWidth > 0 && windowHeight > 0)
++    {
++        pickX = static_cast<int>(mouseX * m_RenderContext->GetWidth() / windowWidth);
++        pickY = static_cast<int>(mouseY * m_RenderContext->GetHeight() / windowHeight);
++    }
+ 
+     CKMessageType msgType = (!dblClk) ? m_MsgClick : m_MsgDoubleClick;
+ 
+diff --git a/src/GamePlayer.h b/src/GamePlayer.h
+index 3b54c38..b0e5633 100644
+--- a/src/GamePlayer.h
++++ b/src/GamePlayer.h
+@@ -1,10 +1,12 @@
+-﻿#ifndef PLAYER_GAMEPLAYER_H
++#ifndef PLAYER_GAMEPLAYER_H
+ #define PLAYER_GAMEPLAYER_H
+ 
+ #include "CKAll.h"
+ 
+ #include "GameConfig.h"
+ 
++#include <SDL3/SDL_events.h>
++
+ struct SDL_Window;
+ 
+ class CGameInfo;
+@@ -113,6 +115,7 @@ private:
+     void OnSwitchFullscreen();
+ 
+     static int HandlePlayerCommand(InterfaceManager *manager, const TTPlayerCommand &command, void *userData);
++    static bool SDLCALL HandleMouseClick(void *data, SDL_Event *event);
+ 
+     int m_State;
+     WIN_HANDLE m_MainWindow;

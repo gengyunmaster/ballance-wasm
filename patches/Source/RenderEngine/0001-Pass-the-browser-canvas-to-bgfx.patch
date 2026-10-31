@@ -1,0 +1,15 @@
+diff --git a/src/CKRasterizer/CKBgfxRasterizer/Rasterizer/CKBgfxRasterizerNative.cpp b/src/CKRasterizer/CKBgfxRasterizer/Rasterizer/CKBgfxRasterizerNative.cpp
+index 8db70d5d..86d654b8 100644
+--- a/src/CKRasterizer/CKBgfxRasterizer/Rasterizer/CKBgfxRasterizerNative.cpp
++++ b/src/CKRasterizer/CKBgfxRasterizer/Rasterizer/CKBgfxRasterizerNative.cpp
+@@ -60,6 +60,10 @@ static bool CKBgfxFillSDLPlatformData(WIN_HANDLE Window, bgfx::PlatformData &pla
+ #elif defined(__APPLE__)
+     platformData.nwh = CKBgfxSdlPointerProperty(props, SDL_PROP_WINDOW_COCOA_WINDOW_POINTER);
+     return platformData.nwh != NULL;
++#elif defined(__EMSCRIPTEN__)
++    const char *canvasId = SDL_GetStringProperty(props, SDL_PROP_WINDOW_EMSCRIPTEN_CANVAS_ID_STRING, NULL);
++    platformData.nwh = const_cast<char *>(canvasId);
++    return canvasId && canvasId[0] != '\0';
+ #elif defined(__linux__)
+     void *waylandSurface = CKBgfxSdlPointerProperty(props, SDL_PROP_WINDOW_WAYLAND_SURFACE_POINTER);
+     if (waylandSurface) {

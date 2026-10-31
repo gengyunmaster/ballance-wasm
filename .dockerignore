@@ -1,0 +1,10 @@
+**/.git
+**/.gitignore
+**/.gitmodules
+.tools
+.deps
+build
+dist
+node_modules
+test-results
+ballance-wasm.tar.gz

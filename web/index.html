@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Ballance</title>
+    <style>
+        html, body {
+            width: 100%;
+            height: 100%;
+            margin: 0;
+            overflow: hidden;
+            background: #05070a;
+        }
+        body {
+            display: grid;
+            place-items: center;
+        }
+        #canvas {
+            display: block;
+            width: min(100vw, 133.333vh);
+            height: min(75vw, 100vh);
+            background: #000;
+            outline: none;
+        }
+        #status {
+            position: fixed;
+            inset: 0;
+            display: grid;
+            place-items: center;
+            padding: 2rem;
+            color: #fff;
+            background: #05070a;
+            font: 16px/1.5 sans-serif;
+            text-align: center;
+        }
+        #status[hidden] {
+            display: none;
+        }
+    </style>
+</head>
+<body>
+    <canvas id="canvas" width="640" height="480" tabindex="0"></canvas>
+    <div id="status">Loading Ballance...</div>
+    <script>
+        const canvas = document.getElementById("canvas");
+        const status = document.getElementById("status");
+        let menuReady = false;
+
+        window.addEventListener("ballance:object-loaded", (event) => {
+            if (event.detail.toLowerCase().endsWith("/menulevel.nmo")) {
+                menuReady = true;
+                status.hidden = true;
+                canvas.focus();
+            }
+        });
+
+        var Module = {
+            canvas,
+            arguments: ["--root-path=/", "--verbose"],
+            setStatus(text) {
+                if (text) {
+                    status.textContent = text;
+                    status.hidden = false;
+                } else if (menuReady) {
+                    status.hidden = true;
+                    canvas.focus();
+                } else {
+                    status.textContent = "Loading the game menu...";
+                    status.hidden = false;
+                }
+            },
+        };
+
+        window.addEventListener("keydown", (event) => {
+            if (["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", "Space"].includes(event.code)) {
+                event.preventDefault();
+            }
+        });
+        window.addEventListener("error", (event) => {
+            status.hidden = false;
+            status.textContent = event.message;
+        });
+    </script>
+    <script src="Player.js"></script>
+</body>
+</html>
