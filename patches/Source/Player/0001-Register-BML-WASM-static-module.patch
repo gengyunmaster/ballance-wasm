@@ -1,0 +1,16 @@
+diff --git a/cmake/PlayerStaticModules.cmake b/cmake/PlayerStaticModules.cmake
+--- a/cmake/PlayerStaticModules.cmake
++++ b/cmake/PlayerStaticModules.cmake
+@@ -349,3 +349,12 @@ if (NOT DEFINED CKRE_BUILD_SDL_GPU_RASTERIZER OR CKRE_BUILD_SDL_GPU_RASTERIZER)
+             LINK_ONLY
+     )
+ endif ()
++if (TARGET BMLWasmStatic)
++    _player_declare_static_module(BMLWasm
++            RUNTIME_TARGET BMLWasm
++            STATIC_TARGET BMLWasmStatic
++            COMPILE_DEFINITION BALLANCE_STATIC_HAVE_BMLWASM
++            DISPLAY_NAME BMLWasm
++            GET_INFO CKGet_BMLWasm_PluginInfo
++    )
++endif ()

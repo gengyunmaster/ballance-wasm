@@ -4,6 +4,7 @@ project(BallanceWasm LANGUAGES C CXX)
 
 set(BALLANCE_BUILD_STATIC ON CACHE BOOL "" FORCE)
 set(BALLANCE_WASM_PATCH_ROOT "${CMAKE_SOURCE_DIR}/dependencies")
+set(BALLANCE_WASM_BML_SOURCE_DIR "${CMAKE_SOURCE_DIR}/wasm/bml")
 
 add_subdirectory(upstream/ballanced upstream/ballanced)
 
@@ -73,6 +74,7 @@ if (EMSCRIPTEN)
             "-sUSE_WEBGL2=1"
             "-sFULL_ES3=1"
             "-sPTHREAD_POOL_SIZE=4"
+            "-sEXPORTED_RUNTIME_METHODS=FS"
             "-pthread"
     )
 

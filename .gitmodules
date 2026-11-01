@@ -2,3 +2,6 @@
 	path = upstream/ballanced
 	url = https://github.com/doyaGu/Ballanced.git
 	ignore = dirty
+[submodule "upstream/ballancemodloaderplus"]
+	path = upstream/ballancemodloaderplus
+	url = https://github.com/doyaGu/BallanceModLoaderPlus.git

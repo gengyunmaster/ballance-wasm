@@ -1,0 +1,35 @@
+diff --git a/src/CKTexture.cpp b/src/CKTexture.cpp
+index ad60dbf4..a5958613 100644
+--- a/src/CKTexture.cpp
++++ b/src/CKTexture.cpp
+@@ -472,10 +472,16 @@ CKBOOL RCKTexture::SystemToVideoMemory(CKRenderContext *Dev, CKBOOL Clamping) {
+     const VX_PIXELFORMAT fallbackFormat = static_cast<VX_PIXELFORMAT>(rm->m_TextureVideoFormat.Value);
+
+     CKTextureDesc desc;
++    VxImageDescEx systemDesc;
++    GetImageDesc(systemDesc);
++    desc.Format = systemDesc;
++
+     const VX_PIXELFORMAT videoFormat = ResolveObjectVideoFormat(
+         m_DesiredVideoFormat,
+         fallbackFormat);
+-    VxPixelFormat2ImageDesc(videoFormat, desc.Format);
++    if (desc.Format.BitsPerPixel <= 0) {
++        VxPixelFormat2ImageDesc(videoFormat, desc.Format);
++    }
+     desc.Format.Width = GetWidth();
+     desc.Format.Height = GetHeight();
+     desc.MipMapCount = 0;
+@@ -496,9 +502,10 @@ CKBOOL RCKTexture::SystemToVideoMemory(CKRenderContext *Dev, CKBOOL Clamping) {
+         desc.Flags |= CKRST_TEXTURE_CUBEMAP;
+     }
+
+-    if (videoFormat >= _16_V8U8 && videoFormat <= _32_X8L8V8U8)
++    const VX_PIXELFORMAT actualVideoFormat = VxImageDesc2PixelFormat(desc.Format);
++    if (actualVideoFormat >= _16_V8U8 && actualVideoFormat <= _32_X8L8V8U8)
+         desc.Flags |= CKRST_TEXTURE_BUMPDUDV;
+-    if (videoFormat == _16_L6V5U5 || videoFormat == _32_X8L8V8U8)
++    if (actualVideoFormat == _16_L6V5U5 || actualVideoFormat == _32_X8L8V8U8)
+         desc.Flags |= CKRST_TEXTURE_BUMPLUMINANCE;
+
+     // If no alpha format and we need alpha, find nearest format with alpha

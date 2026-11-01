@@ -55,6 +55,7 @@
             }
         });
 
+        const moduleOverrides = globalThis.ballanceModule ?? {};
         var Module = {
             canvas,
             arguments: ["--root-path=/", "--verbose"],
@@ -70,6 +71,7 @@
                     status.hidden = false;
                 }
             },
+            ...moduleOverrides,
         };
 
         window.addEventListener("keydown", (event) => {

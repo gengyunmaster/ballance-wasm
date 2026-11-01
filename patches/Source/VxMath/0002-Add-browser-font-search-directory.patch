@@ -1,0 +1,14 @@
+diff --git a/src/fonts/VxFontSearch.cpp b/src/fonts/VxFontSearch.cpp
+index 608c099..37f7713 100644
+--- a/src/fonts/VxFontSearch.cpp
++++ b/src/fonts/VxFontSearch.cpp
+@@ -515,6 +515,9 @@ XBOOL VxEncodeAnsiFontName(const char *family, XString &result)
+ void VxGetFontDirectories(XClassArray<XString> &directories)
+ {
+     directories.Clear();
++#if defined(__EMSCRIPTEN__)
++    AddDirectory(directories, XString("/Fonts"));
++#endif
+     const char *base = SDL_GetBasePath();
+     if (base && *base)
+     {

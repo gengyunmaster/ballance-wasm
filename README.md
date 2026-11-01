@@ -2,17 +2,19 @@
 
 This project builds a browser-playable version of Ballance from the Ballanced reverse-engineering effort. It uses the original game scripts and assets, Emscripten, SDL3, and the bgfx WebGL2 renderer. The resulting image serves a self-contained static application through nginx; no application backend is required.
 
-The repository contains only integration code, patches, tests, documentation, and an external Git submodule reference. It does not contain Ballance assets or vendored upstream source code.
+The repository contains only integration code, patches, tests, documentation, and external Git submodule references. It does not contain Ballance assets or vendored upstream source code.
 
 ## Current Status
 
 Verified workflows include:
 
 - Building SDL3 and the player from source in a clean Docker build environment.
+- Rebuilding from a fresh recursive clone, then exporting and reloading an offline Docker archive.
 - Starting the game through a Node-based WebAssembly smoke test during image construction.
 - Opening the main menu, selecting levels 1 and 2 by their visible buttons, entering gameplay, and moving the ball in Chromium.
 - Selecting level 2 after resizing and entering fullscreen.
 - Serving the game with the required WebAssembly MIME type and cross-origin isolation headers.
+- Running the official BML+ MapScripts, DeformedWB, and CameraUtilities mods through a statically linked WebAssembly runtime.
 
 The current renderer is WebGL2 through bgfx. WebGPU selection and installable PWA support have not been implemented. macOS Safari, comprehensive audio behavior, and a complete playthrough of level 13 have not been verified.
 
@@ -57,9 +59,9 @@ For an existing checkout:
 git submodule update --init --recursive
 ```
 
-The `upstream/` directory is ignored to prevent accidental vendoring of other authors' code. The Ballanced checkout is nevertheless required: `.gitmodules` and the Git link pin its exact revision. Nested submodules, including `Source/Managers/SdlInputManager`, must also be initialized.
+The `upstream/` directory is ignored to prevent accidental vendoring of other authors' code. The Ballanced and BML+ checkouts are nevertheless required: `.gitmodules` and the Git links pin their exact revisions. Nested submodules, including `Source/Managers/SdlInputManager`, must also be initialized.
 
-Place your `Ballance` directory in this checkout before building.
+After recursive submodule initialization, no additional source checkouts or integration files need to be downloaded manually. Place your legally obtained `Ballance` directory in this checkout before building.
 
 ## Build the Docker Image
 
@@ -172,6 +174,26 @@ Useful optional settings include:
 
 Screenshots and browser logs are written to the ignored `test-results/` directory. The tests wait for a frame with meaningful visible content so that loading and transition frames are not mistaken for a successful game scene.
 
+To exercise the static BML+ mods with DeformedWB and CameraUtilities enabled for that browser session:
+
+```bash
+BROWSER_MODS=1 BROWSER_LEVEL_DELAY=0 BROWSER_KEY_HOLD_MS=1000 npm run test:browser
+```
+
+The test injects configuration through Emscripten's `preRun`; it does not change the official defaults in the packaged game. It checks each mod's startup log, the real `StartLevel` script event, gameplay rendering and movement, and CameraUtilities' Q-key camera path.
+
+## BML+ Static Mods
+
+BML+ is pinned at `a63000843f07b3812971b1b1e6c4150d770f0fc8`, the commit for tag `v0.3.14`. Three of the 13 in-tree mods are currently integrated: the browser build compiles the official MapScripts, DeformedWB, and CameraUtilities sources into `Player.wasm`. It does not load Windows DLL or `.bmodp` packages.
+
+The runtime reuses the upstream `IMod`/`IBML` interfaces, configuration, logging, timer, and ScriptHelper implementations. Its static mod registry and lifecycle are WASM-specific: the upstream DLL-driven `ModLoader` and complete `ModContext` have not been ported.
+
+The static runtime currently provides native mod construction and destruction, `OnLoad`/`OnUnload`, per-frame processing and rendering callbacks, configuration loading and saving, timers, command registration, CK object lookup, input polling, object/script-load callbacks, and the game-event callbacks used by these mods. Windows binary hooks are replaced with direct CK script-graph integration at the corresponding `Object Load` and gameplay script locations.
+
+Configurations are stored under `/ModLoader/Configs` and the log under `/ModLoader/ModLoader.log` in Emscripten's in-memory filesystem. They last for the current page session but are not yet persisted across browser reloads.
+
+This is not the complete upstream Windows `BML` target. Dynamic native mod loading, Win32 ImGui, AngelScript, the full Behavior facade, physics hooks, and the remaining in-tree mods are not claimed as ported. In particular, registration-only APIs that still require the physics/script work log an unsupported warning rather than silently claiming success.
+
 ## Static Deployment
 
 The image contains only nginx and the static application. The runtime does not need Node.js, Emscripten, SDL, or any application server.
@@ -200,7 +222,10 @@ The supplied nginx configuration is in `docker/nginx.conf`. The application is s
 
 ```text
 Ballance/                  Local, ignored, legally supplied game assets
-upstream/ballanced/       Ignored recursive submodule checkout
+upstream/ballanced/       Ignored recursive Ballanced submodule checkout
+upstream/ballancemodloaderplus/
+                          Ignored recursive BML+ submodule checkout
+wasm/bml/                 WASM-specific static mod runtime and integration
 patches/                  Local compatibility patches, mirrored by upstream target
 scripts/                  Patch, build, and smoke-test scripts
 web/                      Browser page and runtime configuration
@@ -223,6 +248,8 @@ scripts/apply-patches.sh
 
 The script is idempotent and accepts both pristine and already patched checkouts. It handles nested repositories independently; in particular, `Source/Managers/SdlInputManager` has its own Git root and patch directory.
 
+Ballanced is pinned at `ececf940b3d195b3f95c9c55a6f9dd79e0ac1472`. This revision no longer includes the bgfx rasterizer required by the browser. For WebAssembly builds, CMake restores that component from CKRenderEngine commit `63863ff19e5578864f75b50b41c789372fc2e357` using `FetchContent`, verifies the archive checksum, and applies the compatibility patches from `patches/Source/RenderEngine`. The rasterizer source and generated shader data remain outside the root repository.
+
 After changing an upstream file, regenerate its patch from that repository, for example:
 
 ```bash
@@ -244,7 +271,7 @@ The font renderer's texture blending was being overwritten by a generic stage-bl
 
 ### Missing or repeatedly restored textures
 
-WebGL does not expose the native blit capability expected by one upload path. When blit is unavailable, textures are uploaded directly through bgfx rather than repeatedly queued through an unsupported staging path.
+WebGL does not expose the native blit capability expected by one upload path. When blit is unavailable, textures are uploaded directly through bgfx rather than repeatedly queued through an unsupported staging path. Texture creation also preserves the source image format, avoiding an incompatible conversion of the game's 24-bit assets to 16-bit video textures.
 
 ### Blue wood and brown skies
 

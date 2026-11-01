@@ -1,22 +1,31 @@
 diff --git a/Narratives/Behaviors/ObjectLoader.cpp b/Narratives/Behaviors/ObjectLoader.cpp
-index e08777f..82ff587 100644
+index e08777f..1c90f97 100644
 --- a/Narratives/Behaviors/ObjectLoader.cpp
 +++ b/Narratives/Behaviors/ObjectLoader.cpp
-@@ -1,5 +1,9 @@
+@@ -1,5 +1,13 @@
  #include "CKAll.h"
  
 +#ifdef __EMSCRIPTEN__
 +#include <emscripten.h>
++extern "C" void BMLWasmOnObjectLoad(
++    CKContext *context, const char *filename, CKBOOL isMap, const char *masterName,
++    CK_CLASSID filterClass, CKBOOL addToScene, CKBOOL reuseMeshes,
++    CKBOOL reuseMaterials, CKBOOL dynamic, XObjectArray *objects, CKObject *masterObject);
 +#endif
 +
  CKERROR CreateObjectLoaderProto(CKBehaviorPrototype **pproto);
  int ObjectLoader(const CKBehaviorContext &context);
  CKERROR ObjectLoaderCB(const CKBehaviorContext &behcontext);
-@@ -223,6 +227,13 @@ int ObjectLoader(const CKBehaviorContext &behcontext)
+@@ -223,6 +231,18 @@ int ObjectLoader(const CKBehaviorContext &behcontext)
  
          DeleteCKObjectArray(array);
          beh->SetOutputParameterObject(1, masterobject);
 +#ifdef __EMSCRIPTEN__
++        CKBehavior *ownerScript = beh->GetOwnerScript();
++        CKBOOL isMap = ownerScript && ownerScript->GetName() &&
++                       strcmp(ownerScript->GetName(), "Levelinit_build") == 0;
++        BMLWasmOnObjectLoad(ctx, fname, isMap, mastername, cid, addtoscene,
++                            reuseMeshes, reuseMaterials, dynamic, oarray, masterobject);
 +        EM_ASM({
 +            globalThis.dispatchEvent?.(new CustomEvent("ballance:object-loaded", {
 +                detail: UTF8ToString($0),

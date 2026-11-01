@@ -28,3 +28,17 @@ if [[ "$output" != *"Game is playing."* ]]; then
     printf 'The game did not reach the playing state.\n' >&2
     exit 1
 fi
+if [[ "$output" != *"BML+ WASM module initialized: version 0.3.14"* ]]; then
+    printf 'The BML+ WASM bootstrap did not initialize.\n' >&2
+    exit 1
+fi
+if [[ "$output" != *"BML+ WASM static runtime initialized: 3 official mods"* ]]; then
+    printf 'The BML+ WASM static mod runtime did not initialize.\n' >&2
+    exit 1
+fi
+for mod in MapScripts DeformedWB CameraUtilities; do
+    if [[ "$output" != *"BML+ WASM mod loaded: $mod 0.3.14"* ]]; then
+        printf 'The official BML+ mod did not load: %s\n' "$mod" >&2
+        exit 1
+    fi
+done

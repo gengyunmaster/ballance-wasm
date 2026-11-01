@@ -76,6 +76,22 @@ await page.addInitScript(() => {
     });
 });
 
+if (process.env.BROWSER_MODS === "1") {
+    await page.addInitScript(() => {
+        globalThis.ballanceModule = {
+            preRun: [() => {
+                const fs = globalThis.Module.FS;
+                if (!fs) {
+                    throw new Error("Emscripten FS is unavailable for mod test configuration");
+                }
+                fs.mkdirTree("/ModLoader/Configs");
+                fs.writeFile("/ModLoader/Configs/DeformedWB.cfg", "Misc {\n B Enable 1\n F Extent 0.35\n}\n");
+                fs.writeFile("/ModLoader/Configs/CameraUtilities.cfg", "Camera {\n B Enable 1\n}\n");
+            }],
+        };
+    });
+}
+
 const startupTimeout = Number(process.env.BROWSER_STARTUP_TIMEOUT ?? 120000);
 
 const captureVisibleFrame = async (filename) => {
@@ -158,6 +174,40 @@ try {
         const movement = await waitForVisibleFrame("ballance-movement.png");
         if (level.equals(menu) || movement.equals(level)) {
             throw new Error("The rendered scene did not change after menu interaction and keyboard input");
+        }
+        if (process.env.BROWSER_MODS === "1") {
+            const cameraBefore = await waitForVisibleFrame("ballance-mod-camera-before.png");
+            await page.keyboard.down("q");
+            await page.waitForTimeout(1000);
+            await page.keyboard.up("q");
+            const cameraAfter = await waitForVisibleFrame("ballance-mod-camera-after.png");
+            if (cameraAfter.equals(cameraBefore)) {
+                throw new Error("CameraUtilities did not change the rendered scene after the Q key was held");
+            }
+        }
+    }
+    if (!startupOnly) {
+        const levelEvents = ["PreLoadLevel", "PostLoadLevel", "StartLevel"];
+        let previousEventIndex = -1;
+        for (const levelEvent of levelEvents) {
+            const eventIndex = messages.findIndex((message) => message.includes(`Game event: ${levelEvent}`));
+            if (eventIndex <= previousEventIndex) {
+                throw new Error(`Game lifecycle events are missing or out of order: ${levelEvents.join(" -> ")}`);
+            }
+            previousEventIndex = eventIndex;
+        }
+    }
+    if (process.env.BROWSER_MODS === "1") {
+        const requiredLogs = [
+            "BML+ WASM mod loaded: MapScripts 0.3.14",
+            "BML+ WASM mod loaded: DeformedWB 0.3.14",
+            "BML+ WASM mod loaded: CameraUtilities 0.3.14",
+            "Game event: StartLevel",
+        ];
+        for (const requiredLog of requiredLogs) {
+            if (!messages.some((message) => message.includes(requiredLog))) {
+                throw new Error(`Missing static mod runtime log: ${requiredLog}`);
+            }
         }
     }
     if (pageErrors.length > 0) {
