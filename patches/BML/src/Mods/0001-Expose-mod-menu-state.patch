@@ -1,0 +1,12 @@
+diff --git a/src/Mods/BMLMod.h b/src/Mods/BMLMod.h
+index e5ad8a11..3951b6a5 100644
+--- a/src/Mods/BMLMod.h
++++ b/src/Mods/BMLMod.h
+@@ -63,6 +63,7 @@ public:
+ 
+     void OpenModsMenu();
+     void CloseModsMenu();
++    bool IsModsMenuOpen() { return m_ModMenu.IsOpen(); }
+     bool CloseModsMenuForShutdown() noexcept;
+ 
+     void OpenMapMenu();

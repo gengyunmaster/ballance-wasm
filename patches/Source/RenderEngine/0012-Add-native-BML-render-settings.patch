@@ -1,0 +1,50 @@
+diff --git a/include/RCKRenderContext.h b/include/RCKRenderContext.h
+index 4f9421a9..71df576b 100644
+--- a/include/RCKRenderContext.h
++++ b/include/RCKRenderContext.h
+@@ -193,6 +193,7 @@ public:
+     void SetClipRect(VxRect *rect);
+     void SetFullViewport(CKViewportData *vp, int width, int height);
+     void UpdateProjection(CKBOOL forceUpdate);
++    static void SetWidescreenFix(bool enabled);
+     void AddSprite3DBatch(RCKSprite3D *sprite);
+     void CallSprite3DBatches();
+     void FlushSprite3DBatchesIfNeeded();  // IDA: sub_1000D2F0
+diff --git a/src/CKRenderContext.cpp b/src/CKRenderContext.cpp
+index fb0a3aad..c94992c1 100644
+--- a/src/CKRenderContext.cpp
++++ b/src/CKRenderContext.cpp
+@@ -46,6 +46,7 @@
+ #include <string.h>
+ 
+ CK_CLASSID RCKRenderContext::m_ClassID = CKCID_RENDERCONTEXT;
++static bool g_WidescreenFixEnabled = false;
+ 
+ enum CKRenderContextReadbackPurpose {
+     CK_READBACK_TEXTURE = 0,
+@@ -3311,6 +3312,10 @@ void RCKRenderContext::SetClipRect(VxRect *rect) {
+     if (m_RasterizerContext) m_RasterizerContext->SetTransformMatrix(VXMATRIX_PROJECTION, clipProj);
+ }
+ 
++void RCKRenderContext::SetWidescreenFix(bool enabled) {
++    g_WidescreenFixEnabled = enabled;
++}
++
+ void RCKRenderContext::UpdateProjection(CKBOOL forceUpdate) {
+     if (!forceUpdate && m_ProjectionUpdated)
+         return;
+@@ -3323,8 +3328,12 @@ void RCKRenderContext::UpdateProjection(CKBOOL forceUpdate) {
+ 
+     const float aspect = (float) ((double) m_ViewportData.ViewWidth / (double) m_ViewportData.ViewHeight);
+ 
+-    if (m_Perspective)
+-        m_ProjectionMatrix.Perspective(m_Fov, aspect, m_NearPlane, m_FarPlane);
++    if (m_Perspective) {
++        const float fov = g_WidescreenFixEnabled
++            ? atan2f(tanf(m_Fov * 0.5f) * 0.75f * aspect, 1.0f) * 2.0f
++            : m_Fov;
++        m_ProjectionMatrix.Perspective(fov, aspect, m_NearPlane, m_FarPlane);
++    }
+     else
+         m_ProjectionMatrix.Orthographic(m_Zoom, aspect, m_NearPlane, m_FarPlane);
+ 

@@ -1,0 +1,45 @@
+diff --git a/include/VxWindowFunctions.h b/include/VxWindowFunctions.h
+index b1dabd5..344a79f 100644
+--- a/include/VxWindowFunctions.h
++++ b/include/VxWindowFunctions.h
+@@ -63,6 +63,12 @@ typedef enum VXCURSOR_POINTER {
+  */
+ VX_EXPORT int VxShowCursor(XBOOL show);
+ 
++/**
++ * @brief Reports whether the cursor is currently visible.
++ * @return TRUE if visible, FALSE if hidden.
++ */
++VX_EXPORT XBOOL VxGetCursorVisibleState();
++
+ /**
+  * @brief Sets the appearance of the mouse cursor.
+  * @param cursorID A value from the `VXCURSOR_POINTER` enumeration.
+diff --git a/src/VxWindowFunctionsSDL3.cpp b/src/VxWindowFunctionsSDL3.cpp
+index 6c5b00a..67cf47c 100644
+--- a/src/VxWindowFunctionsSDL3.cpp
++++ b/src/VxWindowFunctionsSDL3.cpp
+@@ -49,6 +49,8 @@
+ #include "VxMath.h"
+ #include "VxSharedLibrary.h"
+ 
++static XBOOL s_cursorVisibleState = TRUE;
++
+ // ============================================================================
+ // Keyboard Functions
+ // ============================================================================
+@@ -432,9 +434,14 @@ int VxShowCursor(XBOOL show) {
+         SDL_HideCursor();
+     }
+ 
++    s_cursorVisibleState = s_cursorDisplayCount >= 0;
+     return s_cursorDisplayCount;
+ }
+ 
++XBOOL VxGetCursorVisibleState() {
++    return s_cursorVisibleState;
++}
++
+ XBOOL VxSetCursor(VXCURSOR_POINTER cursorID) {
+     SDL_SystemCursor sdlCursor;
+     

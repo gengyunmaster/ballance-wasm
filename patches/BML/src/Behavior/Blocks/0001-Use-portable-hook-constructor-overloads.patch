@@ -1,0 +1,16 @@
+diff --git a/src/Behavior/Blocks/Hook.h b/src/Behavior/Blocks/Hook.h
+index 8b9091ab..78d32f82 100644
+--- a/src/Behavior/Blocks/Hook.h
++++ b/src/Behavior/Blocks/Hook.h
+@@ -90,8 +90,9 @@ public:
+     Hook(Callback callback, void *argument = nullptr)
+         : Hook(PlanCallbackState::Static(argument), callback, argument,
+                NativeIdentity(callback, argument)) {}
+-    Hook(PlanCallbackState state, Callback callback,
+-         void *argument = nullptr, Identity identity = {})
++    Hook(PlanCallbackState state, Callback callback, void *argument = nullptr)
++        : Hook(std::move(state), callback, argument, Identity{}) {}
++    Hook(PlanCallbackState state, Callback callback, void *argument, Identity identity)
+         : m_Occurrence(callback
+               ? std::make_shared<Occurrence>(
+                     std::move(state), callback, argument)

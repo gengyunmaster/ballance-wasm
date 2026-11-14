@@ -1,0 +1,13 @@
+diff --git a/src/Mods/BMLMod.cpp b/src/Mods/BMLMod.cpp
+index d6295deb..d0199896 100644
+--- a/src/Mods/BMLMod.cpp
++++ b/src/Mods/BMLMod.cpp
+@@ -233,6 +233,8 @@ void BMLMod::OnLoadObject(const char *filename, CKBOOL isMap, const char *master
+     m_CustomMaps.OnLoadObject(filename);
+ 
+     if (!strcmp(filename, "3D Entities\\Menu.nmo")) {
++        Bui::InitTextures(m_CKContext);
++        Bui::InitMaterials(m_CKContext);
+         BGui::Gui::InitMaterials();
+         Bui::InitSounds(m_CKContext);
+     }

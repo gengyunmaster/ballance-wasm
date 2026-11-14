@@ -1,0 +1,12 @@
+diff --git a/mods/BallSticky/BallSticky.h b/mods/BallSticky/BallSticky.h
+index 9fb25dc1..35b08d08 100644
+--- a/mods/BallSticky/BallSticky.h
++++ b/mods/BallSticky/BallSticky.h
+@@ -1,6 +1,6 @@
+ #pragma once
+ 
+-#include <BML\BMLAll.h>
++#include <BML/BMLAll.h>
+ 
+ MOD_EXPORT IMod *BMLEntry(IBML *bml);
+ MOD_EXPORT void BMLExit(IMod *mod);

@@ -1,0 +1,16 @@
+diff --git a/src/CustomMaps/CustomMaps.cpp b/src/CustomMaps/CustomMaps.cpp
+index 91e66b41..75f20f50 100644
+--- a/src/CustomMaps/CustomMaps.cpp
++++ b/src/CustomMaps/CustomMaps.cpp
+@@ -29,7 +29,10 @@ namespace Behavior = BML::Behavior;
+ using CustomMap::LevelLoader;
+ 
+ namespace {
+-constexpr auto LoadTimeout = std::chrono::seconds(60);
++// The WASM port initializes levels far slower than native Windows builds
++// (tens of seconds for a stock level), so the stock one-minute budget
++// aborts legitimate loads before StartLevel fires.
++constexpr auto LoadTimeout = std::chrono::seconds(180);
+ 
+ template <class T>
+ T *Resolve(ModContext *context, Behavior::ObjectRef reference) {

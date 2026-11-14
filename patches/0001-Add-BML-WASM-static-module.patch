@@ -1,0 +1,12 @@
+diff --git a/Source/CMakeLists.txt b/Source/CMakeLists.txt
+--- a/Source/CMakeLists.txt
++++ b/Source/CMakeLists.txt
+@@ -85,3 +85,6 @@
+ # Player -> Bin/
+ message(STATUS "[Ballance] Adding player...")
++if (BALLANCE_WASM_BML_SOURCE_DIR)
++    add_subdirectory("${BALLANCE_WASM_BML_SOURCE_DIR}" "${CMAKE_CURRENT_BINARY_DIR}/BMLWasm")
++endif ()
+ add_subdirectory(Player)
+ if (MSVC)
+     _set_vs_folder(Player "Applications")

@@ -1,0 +1,12 @@
+diff --git a/Interface/CKTextureFont.cpp b/Interface/CKTextureFont.cpp
+index da67d19..8f0c2d5 100644
+--- a/Interface/CKTextureFont.cpp
++++ b/Interface/CKTextureFont.cpp
+@@ -1207,7 +1207,6 @@ void CKTextureFont::SetRenderStates(CKRenderContext *dev, int options)
+     dev->SetTextureStageState(CKRST_TSS_ADDRESS, VXTEXTURE_ADDRESSCLAMP);
+     dev->SetTextureStageState(CKRST_TSS_TEXTUREMAPBLEND, VXTEXTUREBLEND_MODULATEALPHA);
+ 
+-    dev->SetTextureStageState(CKRST_TSS_STAGEBLEND, 0, 1);
+     dev->SetTextureStageState(CKRST_TSS_TEXTURETRANSFORMFLAGS, 0);
+     dev->SetTextureStageState(CKRST_TSS_TEXCOORDINDEX, 0);
+ 

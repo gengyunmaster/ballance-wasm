@@ -1,0 +1,155 @@
+diff --git a/src/CMakeLists.txt b/src/CMakeLists.txt
+index ad90d796..7722948f 100644
+--- a/src/CMakeLists.txt
++++ b/src/CMakeLists.txt
+@@ -317,6 +317,7 @@ set(BML_CUSTOM_MAPS_PRIVATE_HEADERS
+ )
+ 
+ set(BML_CUSTOM_MAPS_SOURCES
++        CustomMaps/CustomMapLoad.cpp
+         CustomMaps/CustomMaps.cpp
+         CustomMaps/LevelLoader.cpp
+         CustomMaps/MapCatalog.cpp
+diff --git a/src/CustomMaps/CustomMapLoad.h b/src/CustomMaps/CustomMapLoad.h
+index 3d728e4f..67babb43 100644
+--- a/src/CustomMaps/CustomMapLoad.h
++++ b/src/CustomMaps/CustomMapLoad.h
+@@ -9,8 +9,14 @@
+ 
+ #include "BML/DataShare.h"
+ 
++class ModContext;
++
+ namespace CustomMapLoad {
+ 
++bool ReadName(const BML_DataShare *share, std::string &name);
++bool CompleteRequest(ModContext &context, bool isMap, bool loaded,
++                     const std::string &fallbackName, std::string &callbackName);
++
+ constexpr std::uint32_t ProtocolVersion = 1;
+ constexpr char RequestKey[] = "BML.CustomMapLoad.Request";
+ constexpr char ResultKey[] = "BML.CustomMapLoad.Result";
+diff --git a/src/Hooks/ObjectLoadHook.cpp b/src/Hooks/ObjectLoadHook.cpp
+index 4a05cae9..901ad9d7 100644
+--- a/src/Hooks/ObjectLoadHook.cpp
++++ b/src/Hooks/ObjectLoadHook.cpp
+@@ -14,34 +14,6 @@ namespace {
+ 
+ BehaviorFunctionPatch g_ObjectLoadPatch;
+ 
+-bool ReadSharedString(const BML_DataShare *share, const char *key,
+-                      std::string &value) {
+-    std::size_t size = 0;
+-    (void) BML_DataShare_CopyEx(share, key, nullptr, 0, &size);
+-    for (int retry = 0; retry != 3 && size != 0; ++retry) {
+-        std::vector<char> buffer(size, '\0');
+-        std::size_t fullSize = 0;
+-        const int copied = BML_DataShare_CopyEx(
+-            share, key, buffer.data(), buffer.size(), &fullSize);
+-        if (copied == 1 && fullSize == buffer.size() && buffer.back() == '\0') {
+-            value.assign(buffer.data(), buffer.size() - 1u);
+-            return true;
+-        }
+-        size = fullSize;
+-    }
+-    return false;
+-}
+-
+-void PublishCustomMapResult(ModContext &context, BML_DataShare *share,
+-                            const CustomMapLoad::Request &request,
+-                            CustomMapLoad::Outcome outcome) {
+-    if (!CustomMapLoad::WriteResult(share, request.Attempt, outcome)) {
+-        if (ILogger *logger = context.GetLogger())
+-            logger->Error("Failed to publish custom map Object Load result");
+-    }
+-    BML_DataShare_Remove(share, CustomMapLoad::RequestKey);
+-    BML_DataShare_Remove(share, CustomMapLoad::NameKey);
+-}
+ 
+ } // namespace
+ 
+@@ -88,8 +60,8 @@ int HookLifecycle::ObjectLoad(const CKBehaviorContext &behcontext) {
+     const bool customMap = wasLoading && isMap && dataShare &&
+         CustomMapLoad::ReadRequest(dataShare, request);
+     std::string callbackName = fname;
+-    if (wasLoading && isMap && dataShare)
+-        (void) ReadSharedString(dataShare, CustomMapLoad::NameKey, callbackName);
++    if (customMap)
++        (void) CustomMapLoad::ReadName(dataShare, callbackName);
+ 
+     const int result = original(behcontext);
+ 
+@@ -103,8 +75,8 @@ int HookLifecycle::ObjectLoad(const CKBehaviorContext &behcontext) {
+         beh->IsOutputActive(2) == FALSE;
+     if (!loaded) {
+         if (customMap) {
+-            PublishCustomMapResult(
+-                *modContext, dataShare, request, CustomMapLoad::Outcome::Failed);
++            (void) CustomMapLoad::CompleteRequest(
++                *modContext, isMap, false, callbackName, callbackName);
+         }
+         return result;
+     }
+@@ -129,8 +101,8 @@ int HookLifecycle::ObjectLoad(const CKBehaviorContext &behcontext) {
+     }
+ 
+     if (customMap) {
+-        PublishCustomMapResult(
+-            *modContext, dataShare, request, CustomMapLoad::Outcome::Loaded);
++        (void) CustomMapLoad::CompleteRequest(
++            *modContext, isMap, true, callbackName, callbackName);
+     } else if (isMap && dataShare) {
+         BML_DataShare_Remove(dataShare, CustomMapLoad::NameKey);
+     }
+diff --git a/src/CustomMaps/CustomMapLoad.cpp b/src/CustomMaps/CustomMapLoad.cpp
+new file mode 100644
+index 00000000..8179e722
+--- /dev/null
++++ b/src/CustomMaps/CustomMapLoad.cpp
+@@ -0,0 +1,46 @@
++#include "CustomMaps/CustomMapLoad.h"
++
++#include "Loader/ModContext.h"
++
++#include <vector>
++
++namespace CustomMapLoad {
++bool ReadName(const BML_DataShare *share, std::string &name) {
++    std::size_t size = 0;
++    (void) BML_DataShare_CopyEx(share, NameKey, nullptr, 0, &size);
++    for (int retry = 0; retry != 3 && size != 0; ++retry) {
++        std::vector<char> buffer(size, '\0');
++        std::size_t copiedSize = 0;
++        const int copied = BML_DataShare_CopyEx(
++            share, NameKey, buffer.data(), buffer.size(), &copiedSize);
++        if (copied == 1 && copiedSize == buffer.size() && buffer.back() == '\0') {
++            name.assign(buffer.data(), buffer.size() - 1u);
++            return true;
++        }
++        size = copiedSize;
++    }
++    return false;
++}
++
++bool CompleteRequest(ModContext &context, bool isMap, bool loaded,
++                     const std::string &fallbackName, std::string &callbackName) {
++    callbackName = fallbackName;
++    if (!isMap)
++        return false;
++
++    BML_DataShare *share = context.GetDataShare();
++    Request request;
++    if (!share || !ReadRequest(share, request))
++        return false;
++
++    (void) ReadName(share, callbackName);
++    if (!WriteResult(share, request.Attempt,
++                     loaded ? Outcome::Loaded : Outcome::Failed)) {
++        if (ILogger *logger = context.GetLogger())
++            logger->Error("Failed to publish custom map Object Load result");
++    }
++    BML_DataShare_Remove(share, RequestKey);
++    BML_DataShare_Remove(share, NameKey);
++    return true;
++}
++}

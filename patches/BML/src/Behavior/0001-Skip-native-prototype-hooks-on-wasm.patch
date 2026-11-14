@@ -1,0 +1,41 @@
+diff --git a/src/Behavior/CKPrototypeSource.cpp b/src/Behavior/CKPrototypeSource.cpp
+index 326c1b48..17bcf358 100644
+--- a/src/Behavior/CKPrototypeSource.cpp
++++ b/src/Behavior/CKPrototypeSource.cpp
+@@ -11,7 +11,9 @@
+ #endif
+ #include <Windows.h>
+ 
++#ifndef __EMSCRIPTEN__
+ #include <MinHook.h>
++#endif
+ 
+ namespace BML::Behavior::Internal {
+ namespace {
+@@ -101,6 +103,9 @@ bool HasFlag(CKDWORD value, CKDWORD flag) noexcept {
+ class CKPrototypeSource final : public PrototypeSource {
+ public:
+     explicit CKPrototypeSource(CKContext *context) : m_Context(context) {
++#ifdef __EMSCRIPTEN__
++        m_TracksRetirement = true;
++#else
+         HMODULE ck2 = ::GetModuleHandleA("CK2.dll");
+         g_RemoveTarget = ck2 ? reinterpret_cast<void *>(::GetProcAddress(
+             ck2, "?CKRemovePrototypeDeclaration@@YAJPAVCKObjectDeclaration@@@Z"))
+@@ -119,13 +124,16 @@ public:
+             return;
+         }
+         m_TracksRetirement = true;
++#endif
+     }
+ 
+     ~CKPrototypeSource() override {
++#ifndef __EMSCRIPTEN__
+         if (m_TracksRetirement && g_RemoveTarget) {
+             MH_DisableHook(g_RemoveTarget);
+             MH_RemoveHook(g_RemoveTarget);
+         }
++#endif
+         g_RemoveDeclaration = nullptr;
+         g_RemoveTarget = nullptr;
+     }

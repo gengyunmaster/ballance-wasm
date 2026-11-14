@@ -1,0 +1,355 @@
+diff --git a/mods/SpiritTrail/SpiritTrail.cpp b/mods/SpiritTrail/SpiritTrail.cpp
+index 5acbb47b..834105d1 100644
+--- a/mods/SpiritTrail/SpiritTrail.cpp
++++ b/mods/SpiritTrail/SpiritTrail.cpp
+@@ -3,6 +3,8 @@
+ #include <stdio.h>
+ #include <sys/stat.h>
+ 
++#include "WasmPersistentStore.h"
++
+ IMod *BMLEntry(IBML *bml) {
+     return new SpiritTrail(bml);
+ }
+@@ -37,7 +39,7 @@ std::string GetFileHash(const char *filename) {
+     for (int i = 0; i < 4; i++) {
+         char hash[10];
+         CKDWORD crc = CKComputeDataCRC(data.first + segm[i], segm[i + 1] - segm[i]);
+-        sprintf(hash, "%08lx", crc);
++        sprintf(hash, "%08lx", static_cast<unsigned long>(crc));
+         res += hash;
+     }
+ 
+@@ -60,40 +62,54 @@ std::pair<char *, int> UncompressDataFromFile(const char *filename) {
+     FILE *fp = fopen(filename, "rb");
+     if (!fp) return {nullptr, 0};
+ 
+-    fseek(fp, 0, SEEK_END);
+-    int nsize = ftell(fp) - 4;
+-    fseek(fp, 0, SEEK_SET);
++    if (fseek(fp, 0, SEEK_END) != 0) {
++        fclose(fp);
++        return {nullptr, 0};
++    }
++    const long fileSize = ftell(fp);
++    if (fileSize <= 4 || fileSize - 4 > INT_MAX || fseek(fp, 0, SEEK_SET) != 0) {
++        fclose(fp);
++        return {nullptr, 0};
++    }
+ 
+-    int size;
+-    char *buffer = new char[nsize];
+-    fread(&size, 4, 1, fp);
+-    fread(buffer, nsize, 1, fp);
++    const int packedSize = static_cast<int>(fileSize - 4);
++    int size = 0;
++    std::vector<char> buffer(static_cast<std::size_t>(packedSize));
++    const bool read = fread(&size, sizeof(size), 1, fp) == 1 &&
++        fread(buffer.data(), 1, buffer.size(), fp) == buffer.size();
+     fclose(fp);
++    if (!read)
++        return {nullptr, 0};
+ 
+-    char *res = CKUnPackData(size, buffer, nsize);
+-    delete[] buffer;
+-    return {res, size};
++    char *res = CKUnPackData(size, buffer.data(), packedSize);
++    return res ? std::make_pair(res, size) : std::make_pair(nullptr, 0);
+ }
+ 
+ void CompressDataToFile(char *data, int size, const char *filename) {
+     if (!data || size == 0 || !filename)
+         return;
+ 
+-    int nsize;
++    int nsize = 0;
+     char *res = CKPackData(data, size, nsize, 9);
++    if (!res)
++        return;
+ 
+     FILE *fp = fopen(filename, "wb");
+-    if (!fp) return;
++    if (!fp) {
++        CKDeletePointer(res);
++        return;
++    }
+ 
+     fwrite(&size, 4, 1, fp);
+     fwrite(res, nsize, 1, fp);
+     fclose(fp);
++    WasmPersistentStore::Persist(filename);
+ 
+     CKDeletePointer(res);
+ }
+ 
+ void SpiritTrail::OnLoad() {
+-    VxMakeDirectory("..\\ModLoader\\Trails\\");
++    VxMakeDirectory("/ModLoader/Trails/");
+ 
+     GetConfig()->SetCategoryComment("Misc", "Miscellaneous");
+     m_Enabled = GetConfig()->GetProperty("Misc", "Enable");
+@@ -109,6 +125,13 @@ void SpiritTrail::OnLoad() {
+     m_DeathReset->SetDefaultBoolean(true);
+ }
+ 
++void SpiritTrail::WaitForPendingIO() {
++    if (m_LoadPlay.joinable())
++        m_LoadPlay.join();
++    if (m_SaveRecord.joinable())
++        m_SaveRecord.join();
++}
++
+ void SpiritTrail::OnLoadObject(const char *filename, CKBOOL isMap, const char *masterName, CK_CLASSID filterClass,
+                                CKBOOL addToScene, CKBOOL reuseMeshes, CKBOOL reuseMaterials, CKBOOL dynamic,
+                                XObjectArray *objArray, CKObject *masterObj) {
+@@ -116,44 +139,60 @@ void SpiritTrail::OnLoadObject(const char *filename, CKBOOL isMap, const char *m
+         m_CurMap = filename;
+         XString filepath = filename;
+         m_BML->GetPathManager()->ResolveFileName(filepath, DATA_PATH_IDX);
+-        m_RecordDir = "..\\ModLoader\\Trails\\" + GetFileHash(filepath.CStr()) + "\\";
++        m_RecordDir = "/ModLoader/Trails/" + GetFileHash(filepath.CStr()) + "/";
+         VxMakeDirectory((CKSTRING) m_RecordDir.c_str());
+     }
+ 
+     if (!strcmp(filename, "3D Entities\\Balls.nmo")) {
+-        CKDataArray *physBall = m_BML->GetArrayByName("Physicalize_GameBall");
+-        for (int i = 0; i < physBall->GetRowCount(); i++) {
+-            SpiritBall ball;
+-            ball.name.resize(physBall->GetElementStringValue(i, 0, nullptr), '\0');
+-            physBall->GetElementStringValue(i, 0, &ball.name[0]);
+-            ball.name.pop_back();
+-            ball.obj = m_BML->Get3dObjectByName(ball.name.c_str());
+-
+-            CKDependencies dep;
+-            dep.Resize(40);
+-            dep.Fill(0);
+-            dep.m_Flags = CK_DEPENDENCIES_CUSTOM;
+-            dep[CKCID_OBJECT] = CK_DEPENDENCIES_COPY_OBJECT_NAME | CK_DEPENDENCIES_COPY_OBJECT_UNIQUENAME;
+-            dep[CKCID_MESH] = CK_DEPENDENCIES_COPY_MESH_MATERIAL;
+-            dep[CKCID_3DENTITY] = CK_DEPENDENCIES_COPY_3DENTITY_MESH;
+-            ball.obj = (CK3dObject *) m_BML->GetCKContext()->CopyObject(ball.obj, &dep, "_Spirit");
+-            for (int j = 0; j < ball.obj->GetMeshCount(); j++) {
+-                CKMesh *mesh = ball.obj->GetMesh(j);
+-                for (int k = 0; k < mesh->GetMaterialCount(); k++) {
+-                    CKMaterial *mat = mesh->GetMaterial(k);
+-                    mat->EnableAlphaBlend();
+-                    mat->SetSourceBlend(VXBLEND_SRCALPHA);
+-                    mat->SetDestBlend(VXBLEND_INVSRCALPHA);
+-                    VxColor color = mat->GetDiffuse();
+-                    color.a = 0.5f;
+-                    mat->SetDiffuse(color);
+-                    ball.materials.push_back(mat);
+-                    m_BML->SetIC(mat);
++        if (CKDataArray *physBall = m_BML->GetArrayByName("Physicalize_GameBall")) {
++            for (int i = 0; i < physBall->GetRowCount(); i++) {
++                SpiritBall ball;
++                ball.name.resize(physBall->GetElementStringValue(i, 0, nullptr), '\0');
++                physBall->GetElementStringValue(i, 0, &ball.name[0]);
++                ball.name.pop_back();
++                ball.obj = m_BML->Get3dObjectByName(ball.name.c_str());
++                if (!ball.obj) {
++                    GetLogger()->Warn("Cannot create a Spirit Trail ball: %s is unavailable", ball.name.c_str());
++                    continue;
++                }
++
++                CKDependencies dep;
++                dep.Resize(40);
++                dep.Fill(0);
++                dep.m_Flags = CK_DEPENDENCIES_CUSTOM;
++                dep[CKCID_OBJECT] = CK_DEPENDENCIES_COPY_OBJECT_NAME | CK_DEPENDENCIES_COPY_OBJECT_UNIQUENAME;
++                dep[CKCID_MESH] = CK_DEPENDENCIES_COPY_MESH_MATERIAL;
++                dep[CKCID_3DENTITY] = CK_DEPENDENCIES_COPY_3DENTITY_MESH;
++                auto *copy = static_cast<CK3dObject *>(
++                    m_BML->GetCKContext()->CopyObject(ball.obj, &dep, "_Spirit"));
++                if (!copy) {
++                    GetLogger()->Warn("Cannot copy the Spirit Trail ball: %s", ball.name.c_str());
++                    continue;
++                }
++                ball.obj = copy;
++                for (int j = 0; j < ball.obj->GetMeshCount(); j++) {
++                    CKMesh *mesh = ball.obj->GetMesh(j);
++                    for (int k = 0; k < mesh->GetMaterialCount(); k++) {
++                        CKMaterial *mat = mesh->GetMaterial(k);
++                        mat->EnableAlphaBlend();
++                        mat->SetSourceBlend(VXBLEND_SRCALPHA);
++                        mat->SetDestBlend(VXBLEND_INVSRCALPHA);
++                        VxColor color = mat->GetDiffuse();
++                        color.a = 0.5f;
++                        mat->SetDiffuse(color);
++                        ball.materials.push_back(mat);
++                        m_BML->SetIC(mat);
++                    }
+                 }
++                m_DualBalls.push_back(ball);
+             }
+-            m_DualBalls.push_back(ball);
++            if (m_DualBalls.empty())
++                GetLogger()->Warn("No Spirit Trail balls were created from Physicalize_GameBall");
++            else
++                GetLogger()->Info("Created Spirit Balls: %d", static_cast<int>(m_DualBalls.size()));
++        } else {
++            GetLogger()->Warn("Cannot create Spirit Trail balls: Physicalize_GameBall is unavailable");
+         }
+-        GetLogger()->Info("Created Spirit Balls");
+     }
+ 
+     if (!strcmp(filename, "3D Entities\\Gameplay.nmo")) {
+@@ -274,26 +313,55 @@ void SpiritTrail::SetCurrentBall(int curBall) {
+ void SpiritTrail::PreparePlaying() {
+     if (!m_IsPlaying && m_Enabled->GetBoolean() && !m_WaitPlaying) {
+         m_WaitPlaying = true;
++        if (m_SaveRecord.joinable())
++            m_SaveRecord.join();
++
++        std::string recfile[2] = {(m_RecordDir + "hs" + std::to_string(m_CurSector) + ".rec"),
++                                  (m_RecordDir + "sr" + std::to_string(m_CurSector) + ".rec")};
++        for (const std::string &path : recfile)
++            WasmPersistentStore::Restore(path);
+ 
+-        m_LoadPlay = std::thread([this]() {
+-            std::string recfile[2] = {(m_RecordDir + "hs" + std::to_string(m_CurSector) + ".rec"),
+-                                      (m_RecordDir + "sr" + std::to_string(m_CurSector) + ".rec")};
++        m_LoadPlay = std::thread([this, recfile]() {
+             m_PlayHSSR = m_HSSR->GetBoolean();
+ 
+             struct stat buf = {0};
+             for (int i = 0; i < 2; i++) {
++                m_Play[i].hsscore = INT_MIN;
++                m_Play[i].srscore = FLT_MAX;
++                m_Play[i].states.clear();
++                m_Play[i].trafo.clear();
+                 if (stat(recfile[i].c_str(), &buf) == 0) {
+                     std::pair<char *, int> data = UncompressDataFromFile(recfile[i].c_str());
++                    if (!data.first || data.second < 16) {
++                        GetLogger()->Warn("Invalid Spirit Trail record: %s", recfile[i].c_str());
++                        CKDeletePointer(data.first);
++                        continue;
++                    }
++
++                    const int stateCount = *reinterpret_cast<int *>(data.first + 8);
++                    const int transitionCount = *reinterpret_cast<int *>(data.first + 12);
++                    const std::size_t available = static_cast<std::size_t>(data.second - 16);
++                    const std::size_t stateBytes = stateCount >= 0
++                        ? static_cast<std::size_t>(stateCount) * sizeof(Record::State) : 0;
++                    const std::size_t transitionBytes = transitionCount >= 0
++                        ? static_cast<std::size_t>(transitionCount) * sizeof(std::pair<int, int>) : 0;
++                    const bool invalid = stateCount < 0 || transitionCount < 0 ||
++                        stateBytes > available || transitionBytes > available - stateBytes ||
++                        (bool(i) == m_PlayHSSR && (stateCount == 0 || transitionCount == 0));
++                    if (invalid) {
++                        GetLogger()->Warn("Invalid Spirit Trail record contents: %s", recfile[i].c_str());
++                        CKDeletePointer(data.first);
++                        continue;
++                    }
++
+                     m_Play[i].hsscore = *reinterpret_cast<int *>(data.first);
+                     m_Play[i].srscore = *reinterpret_cast<float *>(data.first + 4);
+                     if (bool(i) == m_PlayHSSR) {
+-                        int ssize = *reinterpret_cast<int *>(data.first + 8);
+-                        int tsize = *reinterpret_cast<int *>(data.first + 12);
+-                        m_Play[i].states.resize(ssize);
+-                        memcpy(&m_Play[i].states[0], data.first + 16, ssize * sizeof(Record::State));
+-                        m_Play[i].trafo.resize(tsize);
+-                        memcpy(&m_Play[i].trafo[0], data.first + 16 + ssize * sizeof(Record::State),
+-                               tsize * sizeof(std::pair<int, int>));
++                        m_Play[i].states.resize(stateCount);
++                        memcpy(m_Play[i].states.data(), data.first + 16, stateBytes);
++                        m_Play[i].trafo.resize(transitionCount);
++                        memcpy(m_Play[i].trafo.data(), data.first + 16 + stateBytes,
++                               transitionBytes);
+                     }
+ 
+                     CKDeletePointer(data.first);
+@@ -320,6 +388,9 @@ void SpiritTrail::StartPlaying() {
+             m_PlayFrame = 0;
+             m_PlayTrafo = 1;
+             SetCurrentBall(m_Play[m_PlayHSSR].trafo[0].second);
++            GetLogger()->Info("Playing Spirit Trail record: type=%s sector=%d states=%d",
++                              m_PlayHSSR ? "SR" : "HS", m_CurSector,
++                              static_cast<int>(m_Play[m_PlayHSSR].states.size()));
+         }
+     }
+ }
+@@ -389,7 +460,10 @@ static bool CopyFile(const char *src, const char *dst) {
+     FILE *fin = fopen(src, "rb");
+     if (!fin) return false;
+     FILE *fout = fopen(dst, "wb");
+-    if (!fout) return false;
++    if (!fout) {
++        fclose(fin);
++        return false;
++    }
+ 
+     int ch;
+     while ((ch = fgetc(fin)) != EOF)
+@@ -417,23 +491,26 @@ void SpiritTrail::EndRecording() {
+             *reinterpret_cast<float *>(buffer + 4) = m_Record.srscore;
+             *reinterpret_cast<int *>(buffer + 8) = m_Record.states.size();
+             *reinterpret_cast<int *>(buffer + 12) = m_Record.trafo.size();
+-            memcpy(buffer + 16, &m_Record.states[0], ssize);
+-            memcpy(buffer + 16 + ssize, &m_Record.trafo[0], tsize);
++            if (ssize > 0)
++                memcpy(buffer + 16, m_Record.states.data(), ssize);
++            if (tsize > 0)
++                memcpy(buffer + 16 + ssize, m_Record.trafo.data(), tsize);
+ 
+             std::string hspath = m_RecordDir + "hs" + std::to_string(m_CurSector) + ".rec",
+                 srpath = m_RecordDir + "sr" + std::to_string(m_CurSector) + ".rec";
+ 
+-            std::thread([savehs, savesr, hspath, srpath, buffer, size]() {
++            if (m_SaveRecord.joinable())
++                m_SaveRecord.join();
++            m_SaveRecord = std::thread([savehs, savesr, hspath, srpath, buffer, size]() {
+                 if (savehs) {
+                     CompressDataToFile(buffer, size, hspath.c_str());
+-                    if (savesr) {
+-                        CopyFile(hspath.c_str(), srpath.c_str());
+-                    }
++                    if (savesr && CopyFile(hspath.c_str(), srpath.c_str()))
++                        WasmPersistentStore::Persist(srpath.c_str());
+                 } else {
+                     CompressDataToFile(buffer, size, srpath.c_str());
+                 }
+                 delete[] buffer;
+-            }).detach();
++            });
+ 
+             if (savehs)
+                 GetLogger()->Info("HS of sector %d has updated", m_CurSector);
+diff --git a/mods/SpiritTrail/SpiritTrail.h b/mods/SpiritTrail/SpiritTrail.h
+index 94cd9fef..12d79aa7 100644
+--- a/mods/SpiritTrail/SpiritTrail.h
++++ b/mods/SpiritTrail/SpiritTrail.h
+@@ -12,6 +12,7 @@ MOD_EXPORT void BMLExit(IMod *mod);
+ class SpiritTrail : public IMod {
+ public:
+     explicit SpiritTrail(IBML *bml) : IMod(bml) {}
++    ~SpiritTrail() override { WaitForPendingIO(); }
+ 
+     const char *GetID() override { return "SpiritTrail"; }
+     const char *GetVersion() override { return BML_VERSION; }
+@@ -21,6 +22,7 @@ public:
+     DECLARE_BML_VERSION;
+ 
+     void OnLoad() override;
++    void OnUnload() override { WaitForPendingIO(); }
+     void OnLoadObject(const char *filename, CKBOOL isMap, const char *masterName, CK_CLASSID filterClass,
+                       CKBOOL addToScene, CKBOOL reuseMeshes, CKBOOL reuseMaterials, CKBOOL dynamic,
+                       XObjectArray *objArray, CKObject *masterObj) override;
+@@ -111,6 +113,8 @@ public:
+     void EndRecording();
+ 
+ private:
++    void WaitForPendingIO();
++
+     std::string m_CurMap;
+     std::string m_RecordDir;
+     int m_CurSector = 0;
+@@ -145,6 +149,7 @@ private:
+     };
+     Record m_Record, m_Play[2];
+     std::thread m_LoadPlay;
++    std::thread m_SaveRecord;
+     bool m_LoadingPlay = false;
+ 
+     IProperty *m_Enabled = nullptr;

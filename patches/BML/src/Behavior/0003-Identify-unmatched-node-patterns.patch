@@ -1,0 +1,16 @@
+diff --git a/src/Behavior/Edit/Program.cpp b/src/Behavior/Edit/Program.cpp
+index 17eab949..e0b5eabd 100644
+--- a/src/Behavior/Edit/Program.cpp
++++ b/src/Behavior/Edit/Program.cpp
+@@ -1068,8 +1068,10 @@ Status Program::Resolve(const PatchKey &patch, const ObjectRef &graph,
+                                      matches)
+                         : Internal::Resolve(base, root->Id, item.Pattern,
+                                             resolver, matches);
+-                    if (!current)
++                    if (!current) {
++                        current.Message += " [Node Pattern '" + item.Pattern.Name + "']";
+                         return current;
++                    }
+                 }
+                 if (matches.empty())
+                     return Failure(Error::QueryNotFound,

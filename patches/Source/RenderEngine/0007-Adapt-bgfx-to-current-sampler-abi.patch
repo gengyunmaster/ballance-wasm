@@ -1,0 +1,39 @@
+diff --git a/src/CKRasterizer/CKBgfxRasterizer/Native/CKBgfxPrograms.cpp b/src/CKRasterizer/CKBgfxRasterizer/Native/CKBgfxPrograms.cpp
+index c0429484..aa454b2a 100644
+--- a/src/CKRasterizer/CKBgfxRasterizer/Native/CKBgfxPrograms.cpp
++++ b/src/CKRasterizer/CKBgfxRasterizer/Native/CKBgfxPrograms.cpp
+@@ -18,9 +18,7 @@ static bool CKBgfxSamplerBindingsEqual(
+         left.DefaultColor == right.DefaultColor &&
+         left.MetadataBufferSlot == right.MetadataBufferSlot &&
+         left.BorderColorOffset == right.BorderColorOffset &&
+-        left.SamplerStateOffset == right.SamplerStateOffset &&
+-        left.BorderColorName == right.BorderColorName &&
+-        left.SamplerStateName == right.SamplerStateName;
++        left.SamplerStateOffset == right.SamplerStateOffset;
+ }
+
+ CKERROR CKBgfxRasterizerContext::CreateShader(const CKShaderDesc *Desc,
+@@ -319,23 +317,6 @@ CKERROR CKBgfxRasterizerContext::CreateProgram(const CKFFProgramDesc *Desc, CKDW
+         CKBgfxProgramRecord::SamplerBinding nativeBinding;
+         nativeBinding.Desc = binding;
+         nativeBinding.Handle = uniform;
+-        if (!binding.BorderColorName.IsEmpty()) {
+-            nativeBinding.BorderColorHandle = bgfx::createUniform(
+-                binding.BorderColorName.CStr(), bgfx::UniformType::Vec4);
+-            if (!bgfx::isValid(nativeBinding.BorderColorHandle)) {
+-                bgfx::destroy(uniform);
+-                CKBgfxDestroyRecord(rec);
+-                return CKERR_OUTOFMEMORY;
+-            }
+-            nativeBinding.SamplerStateHandle = bgfx::createUniform(
+-                binding.SamplerStateName.CStr(), bgfx::UniformType::Vec4);
+-            if (!bgfx::isValid(nativeBinding.SamplerStateHandle)) {
+-                bgfx::destroy(nativeBinding.BorderColorHandle);
+-                bgfx::destroy(uniform);
+-                CKBgfxDestroyRecord(rec);
+-                return CKERR_OUTOFMEMORY;
+-            }
+-        }
+         nativeBinding.DefaultTexture = texture;
+         rec->Samplers.PushBack(nativeBinding);
+     }

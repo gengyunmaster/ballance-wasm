@@ -1,0 +1,30 @@
+{
+    "name": "Ballance",
+    "short_name": "Ballance",
+    "description": "The classic 3D ball-rolling game, rebuilt for the browser.",
+    "start_url": "./index.html",
+    "scope": "./",
+    "display": "fullscreen",
+    "background_color": "#0a0f1a",
+    "theme_color": "#0a0f1a",
+    "icons": [
+        {
+            "src": "icon.svg",
+            "sizes": "any",
+            "type": "image/svg+xml",
+            "purpose": "any"
+        },
+        {
+            "src": "icon-192.png",
+            "sizes": "192x192",
+            "type": "image/png",
+            "purpose": "any"
+        },
+        {
+            "src": "icon-512.png",
+            "sizes": "512x512",
+            "type": "image/png",
+            "purpose": "any"
+        }
+    ]
+}

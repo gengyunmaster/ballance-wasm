@@ -1,0 +1,35 @@
+diff --git a/src/Utils/JsonUtils.cpp b/src/Utils/JsonUtils.cpp
+index c44a3a23..ef918ae0 100644
+--- a/src/Utils/JsonUtils.cpp
++++ b/src/Utils/JsonUtils.cpp
+@@ -9,6 +9,7 @@
+ #include <utility>
+ 
+ #include "StringUtils.h"
++#include "PathUtils.h"
+ 
+ namespace utils {
+     namespace {
+@@ -75,6 +76,14 @@ namespace utils {
+ 
+     JsonDocument JsonDocument::ParseFile(const std::wstring &path, std::string &error) {
+         error.clear();
++#ifdef __EMSCRIPTEN__
++        const std::vector<std::uint8_t> bytes = utils::ReadBinaryFileW(path);
++        if (bytes.empty() && !utils::FileExistsW(path)) {
++            error = "Unable to open JSON file";
++            return {};
++        }
++        return Parse(std::string_view(reinterpret_cast<const char *>(bytes.data()), bytes.size()), error);
++#else
+         HANDLE file = CreateFileW(path.c_str(), GENERIC_READ, FILE_SHARE_READ, nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
+         if (file == INVALID_HANDLE_VALUE) {
+             error = "Unable to open JSON file";
+@@ -96,6 +105,7 @@ namespace utils {
+             return {};
+         }
+         return Parse(content, error);
++#endif
+     }
+ 
+     MutableJsonDocument::MutableJsonDocument() : m_Doc(yyjson_mut_doc_new(nullptr)) {}

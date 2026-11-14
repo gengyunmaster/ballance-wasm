@@ -1,0 +1,57 @@
+diff --git a/mods/IVP/src/Mod.cpp b/mods/IVP/src/Mod.cpp
+index d37fbf9d..525bb0ac 100644
+--- a/mods/IVP/src/Mod.cpp
++++ b/mods/IVP/src/Mod.cpp
+@@ -144,7 +144,7 @@ public:
+     const char *GetName() override { return "IVP"; }
+     const char *GetAuthor() override { return "Kakuty"; }
+     const char *GetDescription() override {
+-        return "Retail-locked IVP API and native physics object bridge";
++        return "Native IVP physics objects with architecture-specific symbol access";
+     }
+     DECLARE_BML_VERSION;
+ 
+@@ -161,8 +161,8 @@ public:
+                 return;
+             }
+             m_InterfaceRegistered = true;
+-            GetLogger()->Info("Bound retail physics_RT.dll: timestamp=%08X size=%u symbols=%u",
+-                              info.ImageTimestamp, info.ImageSize,
++            GetLogger()->Info("Native IVP object bridge ready: architecture=%s symbols=%u",
++                              info.Architecture == BML_IVP_ARCH_WASM32 ? "wasm32" : "x86",
+                               info.FunctionSymbolCount);
+         } else {
+             GetLogger()->Error("Cannot bind the supported retail physics_RT.dll: %s",
+diff --git a/src/Behavior/CKGraph.cpp b/src/Behavior/CKGraph.cpp
+index 803b10a3..216a0f7b 100644
+--- a/src/Behavior/CKGraph.cpp
++++ b/src/Behavior/CKGraph.cpp
+@@ -511,9 +511,13 @@ private:
+             CKBehaviorIO *targetIo = link->GetOutBehaviorIO();
+             CKBehavior *source = sourceIo ? sourceIo->GetOwner() : nullptr;
+             CKBehavior *target = targetIo ? targetIo->GetOwner() : nullptr;
+-            if (!Valid(source) || !Valid(target))
++            if (!Valid(source) || !Valid(target)) {
++                const char *graphName = graph->GetName();
+                 return Failure(Error::InvalidState,
+-                               "A graph Link has a missing endpoint.");
++                               "Graph '" + std::string(graphName ? graphName : "") +
++                                   "' has Link " + std::to_string(link->GetID()) +
++                                   " with a missing endpoint.");
++            }
+             GraphLink record;
+             record.Id = static_cast<std::uint64_t>(
+                 static_cast<std::uint32_t>(link->GetID()));
+diff --git a/src/Mods/BMLMod.cpp b/src/Mods/BMLMod.cpp
+index d6295deb..d0199896 100644
+--- a/src/Mods/BMLMod.cpp
++++ b/src/Mods/BMLMod.cpp
+@@ -233,6 +233,8 @@ void BMLMod::OnLoadObject(const char *filename, CKBOOL isMap, const char *master
+     m_CustomMaps.OnLoadObject(filename);
+ 
+     if (!strcmp(filename, "3D Entities\\Menu.nmo")) {
++        Bui::InitTextures(m_CKContext);
++        Bui::InitMaterials(m_CKContext);
+         BGui::Gui::InitMaterials();
+         Bui::InitSounds(m_CKContext);
+     }

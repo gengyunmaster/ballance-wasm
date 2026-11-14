@@ -1,0 +1,36 @@
+--- a/src/glimports.h
++++ b/src/glimports.h
+@@ -227,6 +227,7 @@
+ typedef void           (GL_APIENTRYP PFNGLVERTEXATTRIBDIVISORPROC) (GLuint index, GLuint divisor);
+ typedef void           (GL_APIENTRYP PFNGLVERTEXATTRIBPOINTERPROC) (GLuint index, GLint size, GLenum type, GLboolean normalized, GLsizei stride, const void *pointer);
+ typedef void           (GL_APIENTRYP PFNGLVERTEXATTRIBIPOINTERPROC) (GLuint index, GLint size, GLenum type, GLsizei stride, const void *pointer);
++typedef void           (GL_APIENTRYP PFNGLVERTEXATTRIBI4UIPROC) (GLuint index, GLuint x, GLuint y, GLuint z, GLuint w);
+ typedef void           (GL_APIENTRYP PFNGLVIEWPORTPROC) (GLint x, GLint y, GLsizei width, GLsizei height);
+ 
+ typedef void           (GL_APIENTRYP PFNGLGETTRANSLATEDSHADERSOURCEANGLEPROC)(GLuint shader, GLsizei bufSize, GLsizei *length, GLchar *source);
+@@ -429,6 +430,7 @@
+ GL_IMPORT______(true,  PFNGLVERTEXATTRIBDIVISORPROC,               glVertexAttribDivisor);
+ GL_IMPORT______(false, PFNGLVERTEXATTRIBPOINTERPROC,               glVertexAttribPointer);
+ GL_IMPORT______(true,  PFNGLVERTEXATTRIBIPOINTERPROC,              glVertexAttribIPointer);
++GL_IMPORT______(true,  PFNGLVERTEXATTRIBI4UIPROC,                  glVertexAttribI4ui);
+ GL_IMPORT______(false, PFNGLVERTEXATTRIB1FPROC,                    glVertexAttrib1f);
+ GL_IMPORT______(false, PFNGLVERTEXATTRIB2FPROC,                    glVertexAttrib2f);
+ GL_IMPORT______(false, PFNGLVERTEXATTRIB3FPROC,                    glVertexAttrib3f);
+--- a/src/renderer_gl.cpp
++++ b/src/renderer_gl.cpp
+@@ -5664,6 +5664,15 @@
+ 			{
+ 				Attrib::Enum attr = Attrib::Enum(m_unboundUsedAttrib[ii]);
+ 				GLint loc = m_attributes[attr];
++				if (attr == Attrib::Indices
++				&&  (BX_ENABLED(BGFX_CONFIG_RENDERER_OPENGL >= 30) || s_renderGL->m_gles3) )
++				{
++					GL_CHECK(glVertexAttribI4ui(loc, 0, 0, 0, 0) );
++				}
++				else if (attr == Attrib::Tangent)
++				{
++					GL_CHECK(glVertexAttrib4f(loc, 0.0f, 0.0f, 0.0f, 1.0f) );
++				}
+ 				lazyDisableVertexAttribArray(loc);
+ 			}
+ 		}

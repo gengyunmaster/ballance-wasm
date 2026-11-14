@@ -1,0 +1,245 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <link rel="icon" href="favicon.ico" sizes="16x16 32x32 48x48">
+    <link rel="icon" href="icon-192.png" sizes="192x192" type="image/png">
+    <title>Ballance</title>
+    <style>
+        html, body {
+            width: 100%;
+            height: 100%;
+            margin: 0;
+            overflow: hidden;
+            background: #05070a;
+        }
+        body {
+            display: grid;
+            place-items: center;
+        }
+        #canvas {
+            display: block;
+            width: min(100vw, calc(100vh * 4 / 3));
+            height: min(calc(100vw * 3 / 4), 100vh);
+            background: #000;
+            outline: none;
+        }
+        #status {
+            position: fixed;
+            inset: 0;
+            display: grid;
+            place-items: center;
+            padding: 2rem;
+            color: #fff;
+            background: #05070a;
+            font: 16px/1.5 sans-serif;
+            text-align: center;
+        }
+        #status[hidden] {
+            display: none;
+        }
+    </style>
+</head>
+<body>
+    <canvas id="canvas" width="640" height="480" tabindex="0"></canvas>
+    <div id="status">Loading Ballance...</div>
+    <script>
+        const canvas = document.getElementById("canvas");
+        const status = document.getElementById("status");
+        let menuReady = false;
+        let leaving = false;
+        let leaveTimer = 0;
+
+        const restartGame = (reason) => {
+            if (leaving) {
+                return;
+            }
+            leaving = true;
+            console.log("Ballance restart requested:", reason);
+            menuReady = false;
+            status.hidden = false;
+            status.textContent = `${reason} Restarting Ballance...`;
+            clearTimeout(leaveTimer);
+            leaveTimer = setTimeout(() => window.location.reload(), 250);
+        };
+
+        // A normal, user-initiated exit (main menu EXIT -> YES, or the console
+        // "exit" command) returns to the home page instead of restarting.
+        const exitToHome = (reason) => {
+            if (leaving) {
+                return;
+            }
+            leaving = true;
+            console.log("Ballance exited normally:", reason);
+            clearTimeout(leaveTimer);
+            window.location.href = "/";
+        };
+
+        window.addEventListener("ballance:exit-requested", () => {
+            exitToHome("Game exited.");
+        });
+
+        window.addEventListener("ballance:object-loaded", (event) => {
+            if (event.detail.toLowerCase().endsWith("/menulevel.nmo")) {
+                menuReady = true;
+                status.hidden = true;
+                canvas.focus();
+            }
+        });
+
+        const moduleOverrides = globalThis.ballanceModule ?? {};
+        const computeGameSize = () => {
+            const dpr = Math.min(window.devicePixelRatio || 1, 2);
+            let width = window.innerWidth;
+            let height = window.innerHeight;
+            if (width / height > 4 / 3)
+                width = Math.round(height * 4 / 3);
+            else
+                height = Math.round(width * 3 / 4);
+            width = Math.round(width * dpr);
+            height = Math.round(height * dpr);
+            const scale = Math.min(2560 / width, 1920 / height, 1);
+            width = Math.max(640, Math.round(width * scale) & ~1);
+            height = Math.max(480, Math.round(height * scale) & ~1);
+            return { width, height };
+        };
+        const gameSize = computeGameSize();
+        canvas.width = gameSize.width;
+        canvas.height = gameSize.height;
+        const patchPlayerIni = () => {
+            try {
+                const ini = globalThis.Module.FS.readFile("/Player.ini", { encoding: "utf8" });
+                const patched = ini
+                    .replace(/^(Width\s*=\s*)\d+/m, `$1${gameSize.width}`)
+                    .replace(/^(Height\s*=\s*)\d+/m, `$1${gameSize.height}`);
+                globalThis.Module.FS.writeFile("/Player.ini", patched);
+            } catch (error) {
+                console.warn("Unable to adapt the game resolution:", error);
+            }
+        };
+        // Custom maps imported on the home page are kept in IndexedDB (which has
+        // room for many large files); copy them into the game filesystem so the
+        // Custom Maps menu finds them. Runs before the menu can be opened.
+        const restoreImportedMaps = async () => {
+            // Capture maps saved by the older localStorage-based builds before
+            // the in-game store prunes them; the data is held in memory so the
+            // asynchronous IndexedDB write below is unaffected by the pruning.
+            const legacyPrefix = "ballance-wasm:file:/ModLoader/Maps/";
+            const legacy = [];
+            for (let index = 0; index < localStorage.length; ++index) {
+                const key = localStorage.key(index);
+                if (!key || !key.startsWith(legacyPrefix))
+                    continue;
+                const stored = localStorage.getItem(key);
+                if (!stored || !stored.startsWith("base64:"))
+                    continue;
+                const binary = atob(stored.slice(7));
+                const bytes = new Uint8Array(binary.length);
+                for (let offset = 0; offset < binary.length; ++offset)
+                    bytes[offset] = binary.charCodeAt(offset);
+                legacy.push({ name: key.slice(legacyPrefix.length), data: bytes });
+            }
+            try {
+                const request = indexedDB.open("ballance-wasm-maps", 1);
+                const db = await new Promise((resolve, reject) => {
+                    request.onupgradeneeded = () => {
+                        if (!request.result.objectStoreNames.contains("maps"))
+                            request.result.createObjectStore("maps", { keyPath: "name" });
+                    };
+                    request.onsuccess = () => resolve(request.result);
+                    request.onerror = () => reject(request.error);
+                });
+                try {
+                    for (const map of legacy) {
+                        await new Promise((resolve, reject) => {
+                            const put = db.transaction("maps", "readwrite").objectStore("maps").put(map);
+                            put.onsuccess = () => resolve();
+                            put.onerror = () => reject(put.error);
+                        });
+                    }
+                    const maps = await new Promise((resolve, reject) => {
+                        const getAll = db.transaction("maps").objectStore("maps").getAll();
+                        getAll.onsuccess = () => resolve(getAll.result);
+                        getAll.onerror = () => reject(getAll.error);
+                    });
+                    for (const map of maps) {
+                        const path = "/ModLoader/Maps/" + map.name;
+                        try {
+                            if (!globalThis.Module.FS.analyzePath(path).exists)
+                                globalThis.Module.FS.writeFile(path, map.data);
+                        } catch (error) {
+                            console.warn("Unable to restore imported map:", map.name, error);
+                        }
+                    }
+                } finally {
+                    db.close();
+                }
+                for (const map of legacy)
+                    localStorage.removeItem(legacyPrefix + map.name);
+            } catch (error) {
+                console.warn("Imported map restore failed:", error);
+            }
+        };
+        const previousOnRuntimeInitialized = globalThis.ballanceModule?.onRuntimeInitialized;
+        var Module = {
+            onRuntimeInitialized: () => {
+                if (typeof previousOnRuntimeInitialized === "function")
+                    previousOnRuntimeInitialized();
+                patchPlayerIni();
+                restoreImportedMaps();
+            },
+            canvas,
+            arguments: ["--root-path=/", "--verbose"],
+            setStatus(text) {
+                if (text) {
+                    status.textContent = text;
+                    status.hidden = false;
+                } else if (menuReady) {
+                    status.hidden = true;
+                    canvas.focus();
+                } else {
+                    status.textContent = "Loading the game menu...";
+                    status.hidden = false;
+                }
+            },
+            ...moduleOverrides,
+            onExit(code) {
+                try {
+                    moduleOverrides.onExit?.(code);
+                } finally {
+                    if (code === 0)
+                        exitToHome("Game exited.");
+                    else
+                        restartGame(`Game exited with status ${code}.`);
+                }
+            },
+            onAbort(reason) {
+                try {
+                    moduleOverrides.onAbort?.(reason);
+                } finally {
+                    const detail = reason instanceof Error ? reason.message : String(reason ?? "Unknown error");
+                    restartGame(`Game stopped: ${detail}.`);
+                }
+            },
+        };
+
+        window.addEventListener("keydown", (event) => {
+            if (["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"].includes(event.code)) {
+                event.preventDefault();
+            }
+        });
+        window.addEventListener("error", (event) => {
+            if (event.error || event.message) {
+                restartGame(event.message || "A game runtime error occurred.");
+            }
+        });
+        window.addEventListener("unhandledrejection", (event) => {
+            const reason = event.reason;
+            restartGame(reason instanceof Error ? reason.message : String(reason ?? "Unhandled game error."));
+        });
+    </script>
+    <script src="bml-renderer.js"></script>
+    <script src="Player.js"></script>
+</body>
+</html>

@@ -1,0 +1,15 @@
+diff --git a/mods/DebugUtilities/DebugUtilities.cpp b/mods/DebugUtilities/DebugUtilities.cpp
+index 243337e4..14cfed35 100644
+--- a/mods/DebugUtilities/DebugUtilities.cpp
++++ b/mods/DebugUtilities/DebugUtilities.cpp
+@@ -611,6 +611,10 @@ void DebugUtilities::OnProcess_AddLife() {
+ }
+ 
+ void DebugUtilities::OnProcess_SkipRender() {
++    if (!m_RenderContext)
++        m_RenderContext = m_BML->GetRenderContext();
++    if (!m_RenderContext)
++        return;
+     m_SkipRender = (m_BML->IsCheatEnabled() && m_InputHook->IsKeyDown(m_SkipRenderKey->GetKey()));
+     if (m_SkipRender)
+         m_RenderContext->ChangeCurrentRenderOptions(0, CK_RENDER_DEFAULTSETTINGS);

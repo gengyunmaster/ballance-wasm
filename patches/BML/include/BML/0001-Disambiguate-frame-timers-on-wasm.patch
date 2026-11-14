@@ -1,0 +1,20 @@
+diff --git a/include/BML/IBML.h b/include/BML/IBML.h
+index ce9f3f1b..d8f63757 100644
+--- a/include/BML/IBML.h
++++ b/include/BML/IBML.h
+@@ -78,6 +78,15 @@ public:
+     virtual void AddTimer(float delay, std::function<void()> callback) = 0;
+     virtual void AddTimerLoop(float delay, std::function<bool()> callback) = 0;
+ 
++#ifdef __EMSCRIPTEN__
++    void AddTimer(unsigned long delay, std::function<void()> callback) {
++        AddTimer(static_cast<CKDWORD>(delay), std::move(callback));
++    }
++    void AddTimerLoop(unsigned long delay, std::function<bool()> callback) {
++        AddTimerLoop(static_cast<CKDWORD>(delay), std::move(callback));
++    }
++#endif
++
+     // One flag shared by every Mod and by the loader's own cheat commands, not a
+     // per-Mod setting. EnableCheat broadcasts OnCheatEnabled only when the value
+     // actually changes, so setting it to what it already is notifies nobody.

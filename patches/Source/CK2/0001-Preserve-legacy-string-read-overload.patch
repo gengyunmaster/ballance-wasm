@@ -1,0 +1,14 @@
+diff --git a/include/CKDataArray.h b/include/CKDataArray.h
+index d968bb4..40f2917 100644
+--- a/include/CKDataArray.h
++++ b/include/CKDataArray.h
+@@ -118,6 +118,9 @@ public:
+     DLL_EXPORT int GetStringValue(CKUINTPTR key, int c, char *svalue, int svalueSize);
+     // Set the value of an existing element
+     DLL_EXPORT int GetElementStringValue(int i, int c, char *svalue, int svalueSize);
++    int GetElementStringValue(int i, int c, char *svalue) {
++        return GetElementStringValue(i, c, svalue, GetElementStringValue(i, c, nullptr, 0));
++    }
+ 
+     // Load / Write
+ 

@@ -1,0 +1,27 @@
+diff --git a/cmake/CKREBgfx.cmake b/cmake/CKREBgfx.cmake
+index 0405412b..696d2fdc 100644
+--- a/cmake/CKREBgfx.cmake
++++ b/cmake/CKREBgfx.cmake
+@@ -6,14 +6,19 @@ function(_ckre_declare_bgfx_archive NAME REPOSITORY REVISION SHA256)
+     if (POLICY CMP0135)
+         cmake_policy(SET CMP0135 NEW)
+     endif ()
++    set(_patch_command)
++    if (NAME STREQUAL "ckre_bgfx" AND EMSCRIPTEN)
++        set(_patch_command PATCH_COMMAND git apply "${BALLANCE_WASM_PATCH_ROOT}/bgfx/0001-Set-integer-defaults-for-missing-blend-indices.patch")
++    endif ()
+     FetchContent_Declare(${NAME}
+         URL "https://codeload.github.com/bkaradzic/${REPOSITORY}/tar.gz/${REVISION}"
+         URL_HASH "SHA256=${SHA256}"
+-        SOURCE_SUBDIR .ckre-sources-only)
++        SOURCE_SUBDIR .ckre-sources-only
++        ${_patch_command})
+ endfunction()
+ 
+-# Keep upstream sources immutable and outside the source tree. All four archives
+-# belong to the same upstream bgfx.cmake revision; no git submodule or patch step.
++# Keep upstream sources outside the source tree. All four archives belong to
++# the same upstream bgfx.cmake revision.
+ function(ckre_fetch_bgfx_sources)
+     if (NOT CKRE_BUILD_BGFX_RASTERIZER)
+         return()

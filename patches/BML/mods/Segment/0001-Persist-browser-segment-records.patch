@@ -1,0 +1,43 @@
+diff --git a/mods/Segment/Segment.cpp b/mods/Segment/Segment.cpp
+index 203fe207..9a29b65b 100644
+--- a/mods/Segment/Segment.cpp
++++ b/mods/Segment/Segment.cpp
+@@ -2,6 +2,8 @@
+ 
+ #include "CommandSeg.h"
+ 
++#include "WasmPersistentStore.h"
++
+ IMod *BMLEntry(IBML *bml) {
+     return new Segment(bml);
+ }
+@@ -180,11 +182,16 @@ void Segment::save_pico_to_file(const picojson::value &v) {
+     std::ofstream fs(RECORD_SAVE_PATH, std::ios::trunc);
+     fs << v.serialize();
+     fs.close();
++    if (fs)
++        WasmPersistentStore::Persist(RECORD_SAVE_PATH);
+ }
+ 
+ bool Segment::load_sessions_from_file() {
+     picojson::value v;
++    WasmPersistentStore::Restore(RECORD_SAVE_PATH);
+     std::ifstream fs(RECORD_SAVE_PATH);
++    if (!fs)
++        return false;
+     fs >> v;
+     std::string err = picojson::get_last_error();
+     if (!err.empty()) {
+diff --git a/mods/Segment/Segment.h b/mods/Segment/Segment.h
+index 4908199e..d611a123 100644
+--- a/mods/Segment/Segment.h
++++ b/mods/Segment/Segment.h
+@@ -67,7 +67,7 @@ public:
+ 
+ private:
+     const static inline std::string SEG_VERSION = std::format("{}.{}.{}", SEG_MAJOR_VER, SEG_MINOR_VER, SEG_PATCH_VER);
+-    const static inline std::string RECORD_SAVE_PATH = "../ModLoader/Configs/SegmentRecords.json";
++    const static inline std::string RECORD_SAVE_PATH = "/ModLoader/Configs/SegmentRecords.json";
+ 
+     struct session {
+         session(const int current_level, const int sector_count): state(sector_count), gui(state, current_level) {

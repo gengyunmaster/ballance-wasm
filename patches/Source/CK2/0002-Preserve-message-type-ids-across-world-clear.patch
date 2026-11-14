@@ -1,0 +1,70 @@
+diff --git a/src/CKMessageManager.cpp b/src/CKMessageManager.cpp
+index 124f7bd..1e66045 100644
+--- a/src/CKMessageManager.cpp
++++ b/src/CKMessageManager.cpp
+@@ -24,12 +24,11 @@ CKMessageType CKMessageManager::AddMessageType(CKSTRING MsgName) {
+     int newIndex = m_RegisteredMessageTypes.Size();
+     m_RegisteredMessageTypes.PushBack(name);
+ 
+-    CKWaitingObjectArray **newList = new CKWaitingObjectArray *[m_RegisteredMessageTypes.Size()];
++    CKWaitingObjectArray **newList = new CKWaitingObjectArray *[m_RegisteredMessageTypes.Size()]();
+     if (m_MsgWaitingList) {
+         memcpy(newList, m_MsgWaitingList, (m_RegisteredMessageTypes.Size() - 1) * sizeof(CKWaitingObjectArray *));
+         delete[] m_MsgWaitingList;
+     }
+-    newList[newIndex] = nullptr;
+     m_MsgWaitingList = newList;
+ 
+     return newIndex;
+@@ -260,10 +259,9 @@ CKERROR CKMessageManager::PreClearAll() {
+                 m_MsgWaitingList[i] = nullptr;
+             }
+         }
+-        delete[] m_MsgWaitingList;
+-        m_MsgWaitingList = nullptr;
+     }
+-    m_RegisteredMessageTypes.Clear();
++    // Message IDs are visible to mods and cached by behavior graphs.
++    // Clearing a world must not renumber those registrations.
+     for (int i = 0; i < m_ReceivedMsgThisFrame.Size(); ++i) {
+         CKMessage *msg = m_ReceivedMsgThisFrame[i];
+         if (msg) {
+diff --git a/tests/CKMessageContractTest.cpp b/tests/CKMessageContractTest.cpp
+index 9bfe0cf..d4cea28 100644
+--- a/tests/CKMessageContractTest.cpp
++++ b/tests/CKMessageContractTest.cpp
+@@ -9,13 +9,6 @@
+ #undef SendMessage
+ #endif
+ 
+-// This internal helper is not exported by the fixed SDK. Bridge only its
+-// native 0x240089DF flag contract; messages and parameter objects remain real.
+-void CKParameter::MessageDeleteAfterUse(CKBOOL value) {
+-    if (value) ModifyObjectFlags(CK_PARAMETEROUT_DELETEAFTERUSE, 0);
+-    else ModifyObjectFlags(0, CK_PARAMETEROUT_DELETEAFTERUSE);
+-}
+-
+ class MessageProbe : public CKMessage {
+ public:
+     explicit MessageProbe(CKContext *context) : CKMessage(context) {}
+@@ -232,6 +225,20 @@ TEST_F(CKMessageContractTest, FailedQueueingLeavesTheCallersReferenceAndParamete
+     EXPECT_EQ(nullptr, Context->GetObject(id));
+ }
+ 
++TEST_F(CKMessageContractTest, ClearAllKeepsMessageTypeIdsAndDeletionNotificationsUsable) {
++    CKMessageManager *manager = Context->GetMessageManager();
++    ASSERT_NE(nullptr, manager);
++    const CKMessageType type = manager->AddMessageType(const_cast<char *>("ModLifecycleEvent"));
++    ASSERT_GE(type, 0);
++    CKBeObject *object = Object("temporary object");
++    ASSERT_NE(nullptr, object);
++    CK_ID objectId = object->GetID();
++
++    ASSERT_EQ(CK_OK, Context->ClearAll());
++    EXPECT_EQ(type, manager->AddMessageType(const_cast<char *>("ModLifecycleEvent")));
++    EXPECT_EQ(CK_OK, manager->SequenceToBeDeleted(&objectId, 1));
++}
++
+ TEST_F(CKMessageContractTest, ADetachedEmptyMessageCanBeConstructedInspectedAndReleased) {
+     CKMessage *message = new CKMessage(nullptr); EXPECT_EQ(0, message->GetParameterCount()); EXPECT_EQ(nullptr, message->GetParameter(0));
+     EXPECT_EQ(2, message->AddRef()); EXPECT_EQ(1, message->Release()); EXPECT_EQ(0, message->Release());

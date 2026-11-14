@@ -1,0 +1,719 @@
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index d368de0f..91d07623 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -16,6 +16,7 @@ project(CKRenderEngine VERSION 0.1.0 LANGUAGES C CXX)
+
+ include(GNUInstallDirs)
+ list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
++include(CKREShaderc)
+
+ # =============================================================================
+ # Determine if this is a top-level project
+@@ -35,12 +36,37 @@ endif ()
+ # =============================================================================
+ option(CKRE_BUILD_SHARED "Build shared library" ON)
+ option(CKRE_BUILD_STATIC "Build static library" OFF)
++option(CKRE_BUILD_BGFX_RASTERIZER "Fetch and build the optional bgfx rasterizer" OFF)
+ option(CKRE_BUILD_SDL_GPU_RASTERIZER "Build SDL_gpu rasterizer plugin targets" ON)
+ # Graphics APIs of the platform. Shader formats and identities are portable;
+ # their emitters, embedded shaders and API paths are built for these only.
+ include(CMakeDependentOption)
+ cmake_dependent_option(CKRE_ENABLE_DIRECTX "Build the Direct3D shaders and backend paths" ON "WIN32" OFF)
+ cmake_dependent_option(CKRE_ENABLE_METAL "Build the Metal shaders and backend paths" ON "APPLE" OFF)
++set(CKRE_BGFX_OPENGLES_VERSION "" CACHE STRING
++    "Build bgfx with the requested OpenGL ES renderer version instead of its platform defaults")
++set_property(CACHE CKRE_BGFX_OPENGLES_VERSION PROPERTY STRINGS "" 20 30 31 32)
++# The bgfx renderers of the platform that the rasterizer has shaders for. An
++# OpenGL ES build has only that renderer.
++if (CKRE_BGFX_OPENGLES_VERSION)
++    set(CKRE_BGFX_RENDERERS OPENGLES)
++else ()
++    set(CKRE_BGFX_RENDERERS "")
++    if (CKRE_ENABLE_DIRECTX)
++        list(APPEND CKRE_BGFX_RENDERERS DIRECT3D11 DIRECT3D12)
++    endif ()
++    list(APPEND CKRE_BGFX_RENDERERS VULKAN)
++    if (NOT APPLE)
++        list(APPEND CKRE_BGFX_RENDERERS OPENGL)
++    endif ()
++    if (CKRE_ENABLE_METAL)
++        list(APPEND CKRE_BGFX_RENDERERS METAL)
++    endif ()
++endif ()
++option(CKRE_GENERATE_SHADERS "Regenerate bgfx fixed-function shader headers (requires the bgfx rasterizer)" OFF)
++if(CKRE_GENERATE_SHADERS AND NOT CKRE_BUILD_BGFX_RASTERIZER)
++    message(FATAL_ERROR "CKRE_GENERATE_SHADERS requires CKRE_BUILD_BGFX_RASTERIZER=ON; SDL uses its own offline artifacts")
++endif()
+ option(CKRE_BUILD_TESTS "Build tests" OFF)
+ option(CKRE_BUILD_TOOLS "Build ckre_scene_capture (needs CKRE_BUILD_SHARED)" ${CKRE_BUILD_TESTS})
+ option(CKRE_INSTALL "Generate install target" ${CKRE_IS_TOP_LEVEL})
+@@ -278,6 +304,13 @@ endif ()
+ # =============================================================================
+ # Build library
+ # =============================================================================
++include(CKREBgfx)
++include(CKREBrowserBgfx)
++ckre_fetch_bgfx_sources()
++ckre_restore_browser_bgfx_rasterizer()
++ckre_prepare_shaderc()
++add_subdirectory(deps)
++ckre_resolve_shaderc()
+ if (CKRE_BUILD_TESTS)
+     enable_testing()
+ endif ()
+@@ -345,6 +378,10 @@ if (CKRE_IS_TOP_LEVEL)
+     message(STATUS "  Build Type:           ${CMAKE_BUILD_TYPE}")
+     message(STATUS "  Build Shared:         ${CKRE_BUILD_SHARED}")
+     message(STATUS "  Build Static:         ${CKRE_BUILD_STATIC}")
++    message(STATUS "  Build bgfx Rasterizer:${CKRE_BUILD_BGFX_RASTERIZER}")
++    if (CKRE_BUILD_BGFX_RASTERIZER)
++        message(STATUS "  bgfx Renderers:       ${CKRE_BGFX_RENDERERS}")
++    endif ()
+     message(STATUS "  Build SDL_gpu Rasterizer:${CKRE_BUILD_SDL_GPU_RASTERIZER}")
+     message(STATUS "  DirectX:              ${CKRE_ENABLE_DIRECTX}")
+     message(STATUS "  Metal:                ${CKRE_ENABLE_METAL}")
+diff --git a/cmake/CKREBgfx.cmake b/cmake/CKREBgfx.cmake
+new file mode 100644
+index 00000000..696d2fdc
+--- /dev/null
++++ b/cmake/CKREBgfx.cmake
+@@ -0,0 +1,47 @@
++include_guard(GLOBAL)
++
++# Every archive uses the same population policy. Keep revisions and hashes at
++# the call sites so dependency updates remain directly reviewable.
++function(_ckre_declare_bgfx_archive NAME REPOSITORY REVISION SHA256)
++    if (POLICY CMP0135)
++        cmake_policy(SET CMP0135 NEW)
++    endif ()
++    set(_patch_command)
++    if (NAME STREQUAL "ckre_bgfx" AND EMSCRIPTEN)
++        set(_patch_command PATCH_COMMAND git apply "${BALLANCE_WASM_PATCH_ROOT}/bgfx/0001-Set-integer-defaults-for-missing-blend-indices.patch")
++    endif ()
++    FetchContent_Declare(${NAME}
++        URL "https://codeload.github.com/bkaradzic/${REPOSITORY}/tar.gz/${REVISION}"
++        URL_HASH "SHA256=${SHA256}"
++        SOURCE_SUBDIR .ckre-sources-only
++        ${_patch_command})
++endfunction()
++
++# Keep upstream sources outside the source tree. All four archives belong to
++# the same upstream bgfx.cmake revision.
++function(ckre_fetch_bgfx_sources)
++    if (NOT CKRE_BUILD_BGFX_RASTERIZER)
++        return()
++    endif ()
++    if (CMAKE_VERSION VERSION_LESS 3.20)
++        message(FATAL_ERROR "The optional bgfx build requires CMake 3.20 or newer")
++    endif ()
++    include(FetchContent)
++    _ckre_declare_bgfx_archive(ckre_bgfx_cmake bgfx.cmake
++        bc2f286a7ca98d435c7f3c3c43d8258246b17918
++        375fc9d5811690381154e036673a3127725a71e371c32d14e0ede61558df8ef0)
++    _ckre_declare_bgfx_archive(ckre_bgfx bgfx
++        c7684e20da1e385edc439ef39cdb42b8c661016f
++        2c473c1eae44ecc43f16e601c5228735c36c59dc0eaaf59e9faa0c703c6a4304)
++    _ckre_declare_bgfx_archive(ckre_bx bx
++        0b001f5f36579e8aea07efa5af139ca18dad9505
++        6838db5c4d78d2e901f3828ab7d4ee143f5c701a0ee6e1b7ab1f72a4fea12a6a)
++    _ckre_declare_bgfx_archive(ckre_bimg bimg
++        3b4baab0128ac499c5c3bc37202781bf54084049
++        e8cdb1ab4e17388cd560194d8372da4464fa72434d432fdcbae56be246d68a53)
++    FetchContent_MakeAvailable(ckre_bgfx_cmake ckre_bgfx ckre_bx ckre_bimg)
++    set(CKRE_BGFX_CMAKE_SOURCE_DIR "${ckre_bgfx_cmake_SOURCE_DIR}" PARENT_SCOPE)
++    set(BGFX_DIR "${ckre_bgfx_SOURCE_DIR}" PARENT_SCOPE)
++    set(BX_DIR "${ckre_bx_SOURCE_DIR}" PARENT_SCOPE)
++    set(BIMG_DIR "${ckre_bimg_SOURCE_DIR}" PARENT_SCOPE)
++endfunction()
+diff --git a/cmake/CKREBrowserBgfx.cmake b/cmake/CKREBrowserBgfx.cmake
+new file mode 100644
+index 00000000..cfc4615a
+--- /dev/null
++++ b/cmake/CKREBrowserBgfx.cmake
+@@ -0,0 +1,57 @@
++include_guard(GLOBAL)
++
++function(ckre_restore_browser_bgfx_rasterizer)
++    if (NOT EMSCRIPTEN OR NOT CKRE_BUILD_BGFX_RASTERIZER)
++        return()
++    endif ()
++
++    include(FetchContent)
++    FetchContent_Declare(ckre_legacy_rasterizer
++        URL "https://codeload.github.com/doyaGu/CKRenderEngine/tar.gz/63863ff19e5578864f75b50b41c789372fc2e357"
++        URL_HASH "SHA256=650f63ac0e7247a541a4d430817ee8788ea439b9f25262ce298b4f3c6e5c1838"
++        DOWNLOAD_EXTRACT_TIMESTAMP TRUE
++        SOURCE_SUBDIR .legacy-rasterizer-only
++    )
++    FetchContent_MakeAvailable(ckre_legacy_rasterizer)
++
++    file(COPY "${ckre_legacy_rasterizer_SOURCE_DIR}/src/CKRasterizer/CKBgfxRasterizer"
++        DESTINATION "${CMAKE_CURRENT_SOURCE_DIR}/src/CKRasterizer")
++    file(COPY "${ckre_legacy_rasterizer_SOURCE_DIR}/tests/rasterizers/test_bgfx_rasterizer.cpp"
++        DESTINATION "${CMAKE_CURRENT_SOURCE_DIR}/tests/rasterizers")
++
++    foreach (patch_name IN ITEMS
++            0001-Pass-the-browser-canvas-to-bgfx.patch
++            0003-Support-opaque-texture-formats-in-bgfx.patch
++            0004-Allow-texture-uploads-without-native-blit.patch
++            0005-Cover-texture-channel-conversion.patch
++            0006-Adapt-bgfx-to-current-pipeline-state.patch
++            0007-Adapt-bgfx-to-current-sampler-abi.patch
++            0009-Restore-bgfx-shader-compatibility.patch
++            0010-Restore-bgfx-named-uniform-interface.patch
++            0011-Preserve-source-format-for-texture-uploads.patch)
++        execute_process(
++            COMMAND git apply --check "${CMAKE_SOURCE_DIR}/patches/Source/RenderEngine/${patch_name}"
++            WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
++            RESULT_VARIABLE patch_result
++            OUTPUT_QUIET ERROR_QUIET
++        )
++        if (patch_result EQUAL 0)
++            execute_process(
++                COMMAND git apply "${CMAKE_SOURCE_DIR}/patches/Source/RenderEngine/${patch_name}"
++                WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
++                RESULT_VARIABLE patch_result
++                OUTPUT_QUIET ERROR_QUIET
++            )
++        else ()
++            execute_process(
++                COMMAND git apply -R --check "${CMAKE_SOURCE_DIR}/patches/Source/RenderEngine/${patch_name}"
++                WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
++                RESULT_VARIABLE patch_result
++                OUTPUT_QUIET ERROR_QUIET
++            )
++        endif ()
++        if (NOT patch_result EQUAL 0)
++            message(FATAL_ERROR "Unable to apply browser rasterizer patch: ${patch_name}")
++        endif ()
++    endforeach ()
++endfunction()
+diff --git a/cmake/CKREInstallRuntime.cmake.in b/cmake/CKREInstallRuntime.cmake.in
+index ca54fad6..ca630ecd 100644
+--- a/cmake/CKREInstallRuntime.cmake.in
++++ b/cmake/CKREInstallRuntime.cmake.in
+@@ -1,5 +1,6 @@
+ set(BUILD_ROOT "@CMAKE_BINARY_DIR@")
+ set(STAGE_ROOT "$ENV{DESTDIR}${CMAKE_INSTALL_PREFIX}")
++set(CKRE_BUILD_BGFX_RASTERIZER "@CKRE_BUILD_BGFX_RASTERIZER@")
+ set(CKRE_BUILD_SDL_GPU_RASTERIZER "@CKRE_BUILD_SDL_GPU_RASTERIZER@")
+ set(CKRE_STATIC_RUNTIME "@CKRE_STATIC_RUNTIME@")
+ set(CKRE_REQUIRED_RUNTIME_FILES "@_ckre_required_files@")
+diff --git a/cmake/CKREPruneRasterizers.cmake b/cmake/CKREPruneRasterizers.cmake
+index c660d7b2..db76694a 100644
+--- a/cmake/CKREPruneRasterizers.cmake
++++ b/cmake/CKREPruneRasterizers.cmake
+@@ -1,8 +1,9 @@
+ # Remove only known plugin binaries left by a previous stage configuration.
+ # Keep user configuration, other plugins and assets. External install prefixes
+ # are never cleaned automatically.
+-if (NOT DEFINED BUILD_ROOT OR NOT DEFINED STAGE_ROOT OR NOT DEFINED CKRE_BUILD_SDL_GPU_RASTERIZER)
+-    message(FATAL_ERROR "Build/stage roots and the rasterizer option are required")
++if (NOT DEFINED BUILD_ROOT OR NOT DEFINED STAGE_ROOT OR
++        NOT DEFINED CKRE_BUILD_BGFX_RASTERIZER OR NOT DEFINED CKRE_BUILD_SDL_GPU_RASTERIZER)
++    message(FATAL_ERROR "Build/stage roots and both rasterizer options are required")
+ endif ()
+ get_filename_component(_build_root "${BUILD_ROOT}" REALPATH)
+ get_filename_component(_stage_root "${STAGE_ROOT}" REALPATH)
+diff --git a/cmake/CKRERasterizers.cmake b/cmake/CKRERasterizers.cmake
+index 8980e17c..381b4dc3 100644
+--- a/cmake/CKRERasterizers.cmake
++++ b/cmake/CKRERasterizers.cmake
+@@ -8,13 +8,12 @@ endfunction()
+ # Keep script-mode defaults aligned with configure without changing the caller's
+ # cache. Enabled targets participate in both dynamic and static compositions;
+ # disabled binaries also include enabled providers when using static registration.
+-# Retired providers are always disabled: stages configured before their removal
+-# may still hold their binaries, which the engine would load.
+ function(ckre_get_rasterizers OUT_ENABLED OUT_DISABLED_BINARIES STATIC_REGISTRATION)
+     set(_enabled "")
+-    set(_disabled CKBgfxRasterizer)
++    set(_disabled "")
+     # Target | build option | default
+     foreach (_entry IN ITEMS
++            "CKBgfxRasterizer|CKRE_BUILD_BGFX_RASTERIZER|OFF"
+             "CKSdlGpuRasterizer|CKRE_BUILD_SDL_GPU_RASTERIZER|ON")
+         string(REPLACE "|" ";" _fields "${_entry}")
+         list(GET _fields 0 _target)
+diff --git a/cmake/CKREShaderc.cmake b/cmake/CKREShaderc.cmake
+new file mode 100644
+index 00000000..1ca1ffda
+--- /dev/null
++++ b/cmake/CKREShaderc.cmake
+@@ -0,0 +1,178 @@
++function(_ckre_normalize_architecture VALUE OUT_VAR)
++    string(TOLOWER "${VALUE}" _ckre_arch)
++    if (_ckre_arch MATCHES "^(x86|win32|i[3-6]86)$")
++        set(${OUT_VAR} "x86" PARENT_SCOPE)
++    elseif (_ckre_arch MATCHES "^(x64|amd64|x86_64)$")
++        set(${OUT_VAR} "x64" PARENT_SCOPE)
++    elseif (_ckre_arch MATCHES "^(arm64|aarch64)$")
++        set(${OUT_VAR} "arm64" PARENT_SCOPE)
++    else ()
++        set(${OUT_VAR} "${_ckre_arch}" PARENT_SCOPE)
++    endif ()
++endfunction()
++
++function(_ckre_target_architecture OUT_VAR)
++    if (CMAKE_SYSTEM_NAME STREQUAL "Darwin" AND CMAKE_OSX_ARCHITECTURES)
++        # A universal executable is runnable when it contains the host slice.
++        set(_ckre_arch "${CMAKE_OSX_ARCHITECTURES}")
++    elseif (CMAKE_GENERATOR_PLATFORM)
++        set(_ckre_arch "${CMAKE_GENERATOR_PLATFORM}")
++    elseif (CMAKE_VS_PLATFORM_NAME)
++        set(_ckre_arch "${CMAKE_VS_PLATFORM_NAME}")
++    elseif (CMAKE_CXX_COMPILER_ARCHITECTURE_ID)
++        set(_ckre_arch "${CMAKE_CXX_COMPILER_ARCHITECTURE_ID}")
++    elseif (CMAKE_SYSTEM_PROCESSOR)
++        set(_ckre_arch "${CMAKE_SYSTEM_PROCESSOR}")
++    else ()
++        set(_ckre_arch "${CMAKE_HOST_SYSTEM_PROCESSOR}")
++    endif ()
++    _ckre_normalize_architecture("${_ckre_arch}" _ckre_normalized_arch)
++    set(${OUT_VAR} "${_ckre_normalized_arch}" PARENT_SCOPE)
++endfunction()
++
++function(_ckre_host_visual_studio_platform OUT_VAR)
++    _ckre_normalize_architecture("${CMAKE_HOST_SYSTEM_PROCESSOR}" _ckre_host_arch)
++    if (_ckre_host_arch STREQUAL "x86")
++        set(${OUT_VAR} "Win32" PARENT_SCOPE)
++    elseif (_ckre_host_arch STREQUAL "x64")
++        set(${OUT_VAR} "x64" PARENT_SCOPE)
++    elseif (_ckre_host_arch STREQUAL "arm64")
++        set(${OUT_VAR} "ARM64" PARENT_SCOPE)
++    else ()
++        message(FATAL_ERROR "[CKRenderEngine] Unsupported host architecture for Visual Studio host tools: ${CMAKE_HOST_SYSTEM_PROCESSOR}")
++    endif ()
++endfunction()
++
++function(_ckre_can_run_tool HOST_SYSTEM HOST_ARCH TARGET_SYSTEM TARGET_ARCHES CROSS OUT_VAR)
++    _ckre_normalize_architecture("${HOST_ARCH}" _host_arch)
++    set(_ckre_runnable OFF)
++    if (HOST_SYSTEM STREQUAL TARGET_SYSTEM)
++        foreach (_arch IN LISTS TARGET_ARCHES)
++            _ckre_normalize_architecture("${_arch}" _target_arch)
++            if (HOST_SYSTEM STREQUAL "Windows")
++                if (_target_arch STREQUAL _host_arch OR
++                        (_host_arch STREQUAL "x64" AND _target_arch STREQUAL "x86"))
++                    set(_ckre_runnable ON)
++                endif ()
++            elseif (_target_arch STREQUAL _host_arch AND NOT CROSS)
++                set(_ckre_runnable ON)
++            endif ()
++        endforeach ()
++    endif ()
++    set(${OUT_VAR} "${_ckre_runnable}" PARENT_SCOPE)
++endfunction()
++
++function(_ckre_target_tool_is_runnable OUT_VAR)
++    _ckre_target_architecture(_ckre_target_arch)
++    _ckre_can_run_tool("${CMAKE_HOST_SYSTEM_NAME}" "${CMAKE_HOST_SYSTEM_PROCESSOR}"
++        "${CMAKE_SYSTEM_NAME}" "${_ckre_target_arch}" "${CMAKE_CROSSCOMPILING}" _runnable)
++    set(${OUT_VAR} "${_runnable}" PARENT_SCOPE)
++endfunction()
++
++function(_ckre_host_executable_suffix OUT_VAR)
++    set(_suffix "")
++    if (CMAKE_HOST_SYSTEM_NAME STREQUAL "Windows")
++        set(_suffix ".exe")
++    endif ()
++    set(${OUT_VAR} "${_suffix}" PARENT_SCOPE)
++endfunction()
++
++function(ckre_prepare_shaderc)
++    set(CKRE_SHADERC_EXECUTABLE "" CACHE FILEPATH "Host-compatible bgfx shaderc executable for shader generation")
++    mark_as_advanced(CKRE_SHADERC_EXECUTABLE)
++
++    set(CKRE_BUILD_TARGET_SHADERC OFF PARENT_SCOPE)
++    set(CKRE_SHADERC_COMMAND "" PARENT_SCOPE)
++    set(CKRE_SHADERC_DEPENDS "" PARENT_SCOPE)
++
++    if (NOT CKRE_GENERATE_SHADERS)
++        return()
++    endif ()
++
++    if (CKRE_SHADERC_EXECUTABLE)
++        get_filename_component(_ckre_shaderc "${CKRE_SHADERC_EXECUTABLE}" ABSOLUTE
++                BASE_DIR "${CMAKE_BINARY_DIR}")
++        if (NOT EXISTS "${_ckre_shaderc}")
++            message(FATAL_ERROR "CKRE_SHADERC_EXECUTABLE does not exist: ${_ckre_shaderc}")
++        endif ()
++        set(CKRE_SHADERC_COMMAND "${_ckre_shaderc}" PARENT_SCOPE)
++        return()
++    endif ()
++
++    _ckre_target_tool_is_runnable(_ckre_target_shaderc_runnable)
++    if (_ckre_target_shaderc_runnable)
++        set(CKRE_BUILD_TARGET_SHADERC ON PARENT_SCOPE)
++        return()
++    endif ()
++
++    include(ExternalProject)
++
++    set(_ckre_host_shaderc_build_dir "${CMAKE_BINARY_DIR}/host-tools/shaderc-build")
++    _ckre_host_executable_suffix(_ckre_host_suffix)
++    get_property(_ckre_multi_config GLOBAL PROPERTY GENERATOR_IS_MULTI_CONFIG)
++    if (_ckre_multi_config)
++        set(_ckre_host_shaderc_path "${_ckre_host_shaderc_build_dir}/cmake/bgfx/$<CONFIG>/shaderc${_ckre_host_suffix}")
++    else ()
++        set(_ckre_host_shaderc_path "${_ckre_host_shaderc_build_dir}/cmake/bgfx/shaderc${_ckre_host_suffix}")
++    endif ()
++
++    set(_ckre_host_shaderc_generator_args CMAKE_GENERATOR "${CMAKE_GENERATOR}")
++    if (CMAKE_GENERATOR MATCHES "Visual Studio")
++        _ckre_host_visual_studio_platform(_ckre_host_vs_platform)
++        list(APPEND _ckre_host_shaderc_generator_args
++                CMAKE_GENERATOR_PLATFORM "${_ckre_host_vs_platform}")
++    endif ()
++    if (CMAKE_GENERATOR_TOOLSET)
++        list(APPEND _ckre_host_shaderc_generator_args
++                CMAKE_GENERATOR_TOOLSET "${CMAKE_GENERATOR_TOOLSET}")
++    endif ()
++
++    ExternalProject_Add(CKREHostShaderc
++            SOURCE_DIR "${CKRE_BGFX_CMAKE_SOURCE_DIR}"
++            BINARY_DIR "${_ckre_host_shaderc_build_dir}"
++            ${_ckre_host_shaderc_generator_args}
++            CMAKE_ARGS
++                    "-DBGFX_DIR:PATH=${BGFX_DIR}"
++                    "-DBX_DIR:PATH=${BX_DIR}"
++                    "-DBIMG_DIR:PATH=${BIMG_DIR}"
++                    -DBGFX_BUILD_TOOLS=ON
++                    -DBGFX_BUILD_TOOLS_BIN2C=OFF
++                    -DBGFX_BUILD_TOOLS_GEOMETRY=OFF
++                    -DBGFX_BUILD_TOOLS_SHADER=ON
++                    -DBGFX_BUILD_TOOLS_TEXTURE=OFF
++                    -DBGFX_BUILD_EXAMPLES=OFF
++                    -DBGFX_BUILD_TESTS=OFF
++                    -DBGFX_CUSTOM_TARGETS=OFF
++                    -DBGFX_INSTALL=OFF
++                    -DBGFX_LIBRARY_TYPE=STATIC
++            BUILD_COMMAND "${CMAKE_COMMAND}" --build <BINARY_DIR> --config $<CONFIG> --target shaderc
++            INSTALL_COMMAND ""
++            BUILD_BYPRODUCTS "${_ckre_host_shaderc_path}"
++    )
++    set_target_properties(CKREHostShaderc PROPERTIES FOLDER "CKRenderEngine/tools")
++
++    set(CKRE_SHADERC_COMMAND "${_ckre_host_shaderc_path}" PARENT_SCOPE)
++    set(CKRE_SHADERC_DEPENDS CKREHostShaderc PARENT_SCOPE)
++endfunction()
++
++function(ckre_resolve_shaderc)
++    if (NOT CKRE_GENERATE_SHADERS)
++        return()
++    endif ()
++
++    if (CKRE_SHADERC_COMMAND)
++        set(CKRE_SHADERC_COMMAND "${CKRE_SHADERC_COMMAND}" PARENT_SCOPE)
++        set(CKRE_SHADERC_DEPENDS "${CKRE_SHADERC_DEPENDS}" PARENT_SCOPE)
++        return()
++    endif ()
++
++    if (TARGET shaderc)
++        set(CKRE_SHADERC_COMMAND "$<TARGET_FILE:shaderc>" PARENT_SCOPE)
++        set(CKRE_SHADERC_DEPENDS shaderc PARENT_SCOPE)
++    else ()
++        message(FATAL_ERROR
++                "CKRE_GENERATE_SHADERS requires bgfx shaderc. "
++                "Set CKRE_SHADERC_EXECUTABLE to an existing host-compatible shaderc, "
++                "or disable CKRE_GENERATE_SHADERS to use checked-in generated shader headers.")
++    endif ()
++endfunction()
+diff --git a/cmake/CKRETestRasterizerInstall.cmake b/cmake/CKRETestRasterizerInstall.cmake
+index 82f82219..5dd1f8a9 100644
+--- a/cmake/CKRETestRasterizerInstall.cmake
++++ b/cmake/CKRETestRasterizerInstall.cmake
+@@ -2,17 +2,19 @@ if (NOT DEFINED TEST_ROOT)
+     message(FATAL_ERROR "TEST_ROOT is required")
+ endif ()
+ include("${CMAKE_CURRENT_LIST_DIR}/CKRERasterizers.cmake")
++unset(CKRE_BUILD_BGFX_RASTERIZER)
+ unset(CKRE_BUILD_SDL_GPU_RASTERIZER)
+ unset(CKRE_STATIC_RUNTIME)
+ ckre_get_rasterizers(_enabled _disabled "${CKRE_STATIC_RUNTIME}")
+ if (NOT _enabled STREQUAL "CKSdlGpuRasterizer" OR NOT _disabled STREQUAL "CKBgfxRasterizer" OR
+-        DEFINED CKRE_BUILD_SDL_GPU_RASTERIZER)
++        DEFINED CKRE_BUILD_BGFX_RASTERIZER OR DEFINED CKRE_BUILD_SDL_GPU_RASTERIZER)
+     message(FATAL_ERROR "Script defaults or caller option isolation changed")
+ endif ()
++set(CKRE_BUILD_BGFX_RASTERIZER ON)
+ set(CKRE_BUILD_SDL_GPU_RASTERIZER ON)
+ set(CKRE_STATIC_RUNTIME ON)
+ ckre_get_rasterizers(_enabled _disabled "${CKRE_STATIC_RUNTIME}")
+-if (NOT _enabled STREQUAL "CKSdlGpuRasterizer" OR
++if (NOT _enabled STREQUAL "CKBgfxRasterizer;CKSdlGpuRasterizer" OR
+         NOT _disabled STREQUAL "CKBgfxRasterizer;CKSdlGpuRasterizer")
+     message(FATAL_ERROR "Static providers must remain registered without dynamic binaries")
+ endif ()
+@@ -21,16 +23,17 @@ file(MAKE_DIRECTORY "${_stage}/RenderEngines" "${_stage}/Bin")
+ foreach (_file IN ITEMS CKBgfxRasterizer.dll CKSdlGpuRasterizer.dll UserRasterizer.dll CKBgfxRasterizer.ini)
+     file(WRITE "${_stage}/RenderEngines/${_file}" "test fixture: ${_file}")
+ endforeach ()
+-# The retired bgfx provider of an earlier stage configuration.
++file(WRITE "${_stage}/Bin/libCKBgfxRasterizer.so" "old plugin")
+ ckre_runtime_library_names(_platform_names CKBgfxRasterizer)
+ foreach (_filename IN LISTS _platform_names)
+     file(WRITE "${_stage}/Bin/${_filename}" "platform fixture")
+ endforeach ()
+
+-function(_prune sdl static stage expect_success)
++function(_prune bgfx sdl static stage expect_success)
+     execute_process(COMMAND "${CMAKE_COMMAND}"
+         "-DBUILD_ROOT=${TEST_ROOT}/build" "-DSTAGE_ROOT=${stage}"
+-        "-DCKRE_BUILD_SDL_GPU_RASTERIZER=${sdl}" "-DCKRE_STATIC_RUNTIME=${static}"
++        "-DCKRE_BUILD_BGFX_RASTERIZER=${bgfx}" "-DCKRE_BUILD_SDL_GPU_RASTERIZER=${sdl}"
++        "-DCKRE_STATIC_RUNTIME=${static}"
+         -P "${CMAKE_CURRENT_LIST_DIR}/CKREPruneRasterizers.cmake"
+         RESULT_VARIABLE _result OUTPUT_VARIABLE _output ERROR_VARIABLE _error)
+     if ((expect_success AND NOT _result EQUAL 0) OR (NOT expect_success AND _result EQUAL 0))
+@@ -40,8 +43,8 @@ endfunction()
+
+ function(_verify expect_success required)
+     execute_process(COMMAND "${CMAKE_COMMAND}" "-DSTAGE_ROOT=${_stage}"
+-        -DCKRE_BUILD_SDL_GPU_RASTERIZER=ON -DCKRE_STATIC_RUNTIME=OFF
+-        "-DCKRE_REQUIRED_RUNTIME_FILES=${required}"
++        -DCKRE_BUILD_BGFX_RASTERIZER=OFF -DCKRE_BUILD_SDL_GPU_RASTERIZER=ON
++        -DCKRE_STATIC_RUNTIME=OFF "-DCKRE_REQUIRED_RUNTIME_FILES=${required}"
+         -P "${CMAKE_CURRENT_LIST_DIR}/CKREVerifyRuntime.cmake"
+         RESULT_VARIABLE _result OUTPUT_VARIABLE _output ERROR_VARIABLE _error)
+     if ((expect_success AND NOT _result EQUAL 0) OR (NOT expect_success AND _result EQUAL 0))
+@@ -49,32 +52,38 @@ function(_verify expect_success required)
+     endif ()
+ endfunction()
+
++_prune(ON ON OFF "${_stage}" TRUE)
++if (NOT EXISTS "${_stage}/RenderEngines/CKBgfxRasterizer.dll")
++    message(FATAL_ERROR "Enabled bgfx was removed")
++endif ()
+ _verify(FALSE "RenderEngines/CKSdlGpuRasterizer.dll")
+-_prune(ON OFF "${_stage}" TRUE)
++_prune(OFF ON OFF "${_stage}" TRUE)
+ foreach (_filename IN LISTS _platform_names)
+     if (EXISTS "${_stage}/Bin/${_filename}")
+-        message(FATAL_ERROR "Retired platform binary was retained: ${_filename}")
++        message(FATAL_ERROR "Disabled platform binary was retained: ${_filename}")
+     endif ()
+ endforeach ()
+ _verify(TRUE "RenderEngines/CKSdlGpuRasterizer.dll")
+ _verify(FALSE "RenderEngines/CK2_3D.ini")
+ if (EXISTS "${_stage}/RenderEngines/CKBgfxRasterizer.dll" OR
++        EXISTS "${_stage}/Bin/libCKBgfxRasterizer.so" OR
+         NOT EXISTS "${_stage}/RenderEngines/CKSdlGpuRasterizer.dll")
+-    message(FATAL_ERROR "SDL stage contains the wrong rasterizers")
++    message(FATAL_ERROR "SDL-only stage contains the wrong rasterizers")
+ endif ()
+-_prune(OFF OFF "${_stage}" TRUE)
+-if (EXISTS "${_stage}/RenderEngines/CKSdlGpuRasterizer.dll")
+-    message(FATAL_ERROR "Disabled SDL_gpu rasterizer was retained")
++file(WRITE "${_stage}/RenderEngines/CKBgfxRasterizer.dll" "re-enabled plugin")
++_prune(ON OFF OFF "${_stage}" TRUE)
++if (EXISTS "${_stage}/RenderEngines/CKSdlGpuRasterizer.dll" OR
++        NOT EXISTS "${_stage}/RenderEngines/CKBgfxRasterizer.dll")
++    message(FATAL_ERROR "bgfx-only stage contains the wrong rasterizers")
+ endif ()
+-file(WRITE "${_stage}/RenderEngines/CKSdlGpuRasterizer.dll" "re-enabled plugin")
+-_prune(ON ON "${_stage}" TRUE)
+-if (EXISTS "${_stage}/RenderEngines/CKSdlGpuRasterizer.dll")
++_prune(ON ON ON "${_stage}" TRUE)
++if (EXISTS "${_stage}/RenderEngines/CKBgfxRasterizer.dll")
+     message(FATAL_ERROR "Static stage retains a dynamic rasterizer")
+ endif ()
+ if (CMAKE_HOST_WIN32)
+     file(WRITE "${_stage}/RenderEngines/libCKBgfxRasterizer.dll" "MinGW fixture")
+     string(TOUPPER "${_stage}" _case_variant)
+-    _prune(ON OFF "${_case_variant}" TRUE)
++    _prune(OFF ON OFF "${_case_variant}" TRUE)
+     if (EXISTS "${_stage}/RenderEngines/libCKBgfxRasterizer.dll")
+         message(FATAL_ERROR "Case-variant Windows prefix was not cleaned")
+     endif ()
+@@ -88,7 +97,7 @@ endforeach ()
+
+ file(MAKE_DIRECTORY "${TEST_ROOT}/external/RenderEngines")
+ file(WRITE "${TEST_ROOT}/external/RenderEngines/CKBgfxRasterizer.dll" "external plugin")
+-_prune(ON OFF "${TEST_ROOT}/external" FALSE)
++_prune(OFF ON OFF "${TEST_ROOT}/external" FALSE)
+ file(READ "${TEST_ROOT}/external/RenderEngines/CKBgfxRasterizer.dll" _external)
+ if (NOT _external STREQUAL "external plugin")
+     message(FATAL_ERROR "External install was changed")
+diff --git a/deps/CMakeLists.txt b/deps/CMakeLists.txt
+new file mode 100644
+index 00000000..4ced4470
+--- /dev/null
++++ b/deps/CMakeLists.txt
+@@ -0,0 +1,144 @@
++# RenderEngine third-party dependencies
++
++if (NOT CKRE_BUILD_BGFX_RASTERIZER)
++    message(STATUS "[CKRenderEngine] bgfx dependency disabled")
++    return()
++endif ()
++
++# Build target-architecture tools for the optional bgfx backend
++# only when CK2_3D can run them on this host. Cross builds use CKREHostShaderc.
++set(BGFX_BUILD_TOOLS ${CKRE_BUILD_TARGET_SHADERC} CACHE BOOL "" FORCE)
++set(BGFX_BUILD_TOOLS_BIN2C OFF CACHE BOOL "" FORCE)
++set(BGFX_BUILD_TOOLS_GEOMETRY OFF CACHE BOOL "" FORCE)
++set(BGFX_BUILD_TOOLS_SHADER ${CKRE_BUILD_TARGET_SHADERC} CACHE BOOL "" FORCE)
++set(BGFX_BUILD_TOOLS_TEXTURE OFF CACHE BOOL "" FORCE)
++set(BGFX_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
++set(BGFX_BUILD_TESTS OFF CACHE BOOL "" FORCE)
++set(BGFX_INSTALL OFF CACHE BOOL "" FORCE)
++set(BGFX_CUSTOM_TARGETS OFF CACHE BOOL "" FORCE)
++set(BGFX_LIBRARY_TYPE "STATIC" CACHE STRING "" FORCE)
++
++if (APPLE AND CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
++    set(BGFX_CONFIG_MULTITHREADED OFF CACHE BOOL "" FORCE)
++else ()
++    set(BGFX_CONFIG_MULTITHREADED ON CACHE BOOL "" FORCE)
++endif ()
++
++if (NOT TARGET bgfx)
++    if (MSVC)
++        # bx must compile without C++ unwinding because its Windows thread-name
++        # fallback uses SEH __try.  Remove the inherited /EHsc while creating
++        # the third-party targets; the non-bx targets restore it below.
++        set(_ckre_saved_cxx_flags "${CMAKE_CXX_FLAGS}")
++        string(REGEX REPLACE "(^| )/EHsc( |$)" " " CMAKE_CXX_FLAGS
++                "${CMAKE_CXX_FLAGS}")
++    endif ()
++
++    add_subdirectory("${CKRE_BGFX_CMAKE_SOURCE_DIR}" "${CMAKE_CURRENT_BINARY_DIR}/bgfx")
++
++    if (MSVC)
++        set(CMAKE_CXX_FLAGS "${_ckre_saved_cxx_flags}")
++    endif ()
++endif ()
++
++# bimg's decoder includes miniz.c directly from image_decode.cpp. The upstream
++# CMake wrapper also adds miniz.c as a separate source, which produces a
++# duplicate implementation in bimg_decode and LNK4006 for every exported miniz
++# symbol on MSVC.
++if (TARGET bimg_decode)
++    get_target_property(_ckre_bimg_decode_sources bimg_decode SOURCES)
++    if (_ckre_bimg_decode_sources)
++        list(FILTER _ckre_bimg_decode_sources EXCLUDE
++                REGEX "[/\\\\]tinyexr[/\\\\]deps[/\\\\]miniz[/\\\\]miniz\\.c$")
++        set_property(TARGET bimg_decode PROPERTY SOURCES
++                "${_ckre_bimg_decode_sources}")
++    endif ()
++endif ()
++
++if (TARGET bimg_encode AND CMAKE_CXX_COMPILER_ID MATCHES "Clang")
++    set_property(SOURCE
++            "${BIMG_DIR}/3rdparty/etcpak/ProcessRGB.cpp"
++            TARGET_DIRECTORY bimg_encode APPEND PROPERTY
++            COMPILE_OPTIONS
++            "-Wno-logical-not-parentheses;-Wno-macro-redefined;-Wno-return-type")
++    if (CMAKE_CXX_COMPILER_ID STREQUAL "AppleClang")
++        set(_ckre_nvtt_memcall_warning "-Wno-nontrivial-memaccess")
++    else ()
++        set(_ckre_nvtt_memcall_warning "-Wno-nontrivial-memcall")
++    endif ()
++    set_property(SOURCE
++            "${BIMG_DIR}/3rdparty/nvtt/nvmath/fitting.cpp"
++            TARGET_DIRECTORY bimg_encode APPEND PROPERTY
++            COMPILE_OPTIONS "${_ckre_nvtt_memcall_warning}")
++endif ()
++
++if (TARGET bimg_encode AND CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
++    # The selector is constrained to [0, 15] by etcpak, but GCC cannot prove it.
++    set_property(SOURCE
++            "${BIMG_DIR}/3rdparty/etcpak/ProcessRGB.cpp"
++            TARGET_DIRECTORY bimg_encode APPEND PROPERTY
++            COMPILE_OPTIONS "-Wno-return-type")
++endif ()
++
++if (MSVC)
++    # All other bgfx targets use the project default exception model.  Adding
++    # it per target avoids both bx's D9025 overrides and bimg's C4530.
++    foreach (_ckre_exception_target bimg bimg_decode bimg_encode bgfx)
++        if (TARGET ${_ckre_exception_target})
++            target_compile_options(${_ckre_exception_target} PRIVATE /EHsc)
++        endif ()
++    endforeach ()
++
++    # The upstream bgfx sources are UTF-8.  Declare only the source encoding so
++    # local non-English Windows code pages do not emit C4819 or alter parsing;
++    # leave the execution character set unchanged for legacy runtime strings.
++    foreach (_ckre_utf8_target bx bimg bimg_decode bgfx)
++        if (TARGET ${_ckre_utf8_target})
++            target_compile_options(${_ckre_utf8_target} PRIVATE
++                    /source-charset:utf-8)
++        endif ()
++    endforeach ()
++    if (TARGET bimg_encode)
++        # nvtt combines historical Windows-1252 and UTF-8 sources.  Do not
++        # force a single source charset; limit encoding diagnostics to this
++        # upstream encoder target instead.
++        target_compile_options(bimg_encode PRIVATE /wd4819 /wd4828)
++    endif ()
++
++    # Keep third-party conversion diagnostics scoped to the affected sources.
++    set_property(SOURCE
++            "${BIMG_DIR}/src/image.cpp"
++            TARGET_DIRECTORY bimg APPEND PROPERTY
++            COMPILE_OPTIONS "/wd4244")
++    set_property(SOURCE
++            "${BGFX_DIR}/src/video_vk.cpp"
++            TARGET_DIRECTORY bgfx APPEND PROPERTY
++            COMPILE_OPTIONS "/wd4244")
++
++endif ()
++
++if (TARGET bgfx)
++    # Only the renderers of CKRE_BGFX_RENDERERS; bgfx leaves out every renderer
++    # that is not defined. The OpenGL renderers take their context version.
++    foreach (_ckre_renderer IN LISTS CKRE_BGFX_RENDERERS)
++        if (_ckre_renderer STREQUAL "OPENGL")
++            # Fixed-function GLSL 150 needs an OpenGL 3.2 context. The 2.1
++            # fallback also binds integer blend indices through
++            # glVertexAttribPointer.
++            set(_ckre_value 32)
++        elseif (_ckre_renderer STREQUAL "OPENGLES")
++            set(_ckre_value ${CKRE_BGFX_OPENGLES_VERSION})
++        else ()
++            set(_ckre_value 1)
++        endif ()
++        target_compile_definitions(bgfx PRIVATE BGFX_CONFIG_RENDERER_${_ckre_renderer}=${_ckre_value})
++    endforeach ()
++endif ()
++
++if (TARGET bgfx AND CKRE_BUILD_SHARED AND BGFX_LIBRARY_TYPE STREQUAL "STATIC")
++    target_compile_definitions(bgfx PRIVATE BGFX_SHARED_LIB_BUILD=1)
++endif ()
++
++if (TARGET shaderc AND MINGW)
++    target_compile_definitions(shaderc PRIVATE SHADERC_CONFIG_HAS_DXC=0)
++endif ()
+diff --git a/src/CK2_3D.cpp b/src/CK2_3D.cpp
+index 26842b22..c6f8fb3b 100644
+--- a/src/CK2_3D.cpp
++++ b/src/CK2_3D.cpp
+@@ -159,6 +159,10 @@ static void RegisterNullRasterizer() {
+
+ void EnumerateRasterizers() {
+     if (!g_EnumerationDone) {
++#if defined(CKRE_STATIC_BGFX_RASTERIZER)
++        extern void CKBgfxRasterizerGetInfo(CKRasterizerInfo *info);
++        RegisterStaticRasterizer(CKBgfxRasterizerGetInfo, "CKBgfxRasterizer");
++#endif
+ #if defined(CKRE_STATIC_SDL_GPU_RASTERIZER)
+         RegisterStaticRasterizer(CKSdlGpuRasterizerGetInfo, "CKSdlGpuRasterizer");
+ #endif
+diff --git a/src/CMakeLists.txt b/src/CMakeLists.txt
+index 7a508f4f..f3788ce4 100644
+--- a/src/CMakeLists.txt
++++ b/src/CMakeLists.txt
+@@ -238,6 +238,11 @@ if (CKRE_BUILD_STATIC)
+     target_compile_definitions(CK2_3DStatic PRIVATE CKRE_STATIC_RENDER_ENGINE=1)
+     ckre_configure_target(CK2_3DStatic)
+
++    if (TARGET CKBgfxRasterizerStatic)
++        target_compile_definitions(CK2_3DStatic PRIVATE CKRE_STATIC_BGFX_RASTERIZER=1)
++        target_link_libraries(CK2_3DStatic PRIVATE $<BUILD_INTERFACE:CKBgfxRasterizerStatic>)
++    endif ()
++
+     if (TARGET CKSdlGpuRasterizerStatic)
+         target_compile_definitions(CK2_3DStatic PRIVATE CKRE_STATIC_SDL_GPU_RASTERIZER=1)
+         target_link_libraries(CK2_3DStatic PRIVATE $<BUILD_INTERFACE:CKSdlGpuRasterizerStatic>)

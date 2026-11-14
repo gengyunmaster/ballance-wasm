@@ -1,0 +1,25 @@
+diff --git a/src/CKRasterizer/CKBgfxRasterizer/Native/CKBgfxCommands.cpp b/src/CKRasterizer/CKBgfxRasterizer/Native/CKBgfxCommands.cpp
+index a543a9f..d9ef8e7 100644
+--- a/src/CKRasterizer/CKBgfxRasterizer/Native/CKBgfxCommands.cpp
++++ b/src/CKRasterizer/CKBgfxRasterizer/Native/CKBgfxCommands.cpp
+@@ -233,17 +233,12 @@ CKERROR CKBgfxRasterizerContext::ApplyPipelineState(const CKFFPipelineState &sta
+     const CKERROR stateError = CKBgfxTryState(state.State, bgfxState);
+     if (stateError != CK_OK)
+         return stateError;
+-    if (!(state.PointSize >= 0.0f && state.PointSize <= 15.0f))
+-        return CKERR_INVALIDPARAMETER;
+     const CKDWORD stencilRef = state.StencilRef & 0xFF;
+     const CKDWORD stencilReadMask = state.StencilReadMask & 0xFF;
+     const CKDWORD stencilWriteMask = state.StencilWriteMask & 0xFF;
+-    m_PointSize = (CKDWORD)(state.PointSize + 0.5f);
++    m_PointSize = 0;
+     m_CachedDrawState = state.State;
+     m_CachedBgfxState = bgfxState;
+-    uint64_t finalState = bgfxState;
+-    if (m_PointSize > 0)
+-        finalState |= BGFX_STATE_POINT_SIZE(m_PointSize);
+-    bgfx::setState(finalState);
++    bgfx::setState(bgfxState);
+     ApplyStencil(state.State, stencilRef, stencilReadMask, stencilWriteMask);
+
+     if (state.ScissorEnabled) {

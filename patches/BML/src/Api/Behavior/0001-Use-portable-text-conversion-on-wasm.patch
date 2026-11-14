@@ -1,0 +1,53 @@
+diff --git a/src/Api/Behavior/Text.cpp b/src/Api/Behavior/Text.cpp
+index 3514e659..1fcec9dd 100644
+--- a/src/Api/Behavior/Text.cpp
++++ b/src/Api/Behavior/Text.cpp
+@@ -5,6 +5,8 @@
+ 
+ #include <windows.h>
+ 
++#include "StringUtils.h"
++
+ namespace BML::Api::Behavior {
+ namespace {
+ 
+@@ -18,6 +20,11 @@ bool IsAscii(std::string_view text) noexcept {
+ 
+ bool Widen(std::string_view text, unsigned codePage, DWORD flags,
+            std::wstring &out) {
++#ifdef __EMSCRIPTEN__
++    (void) codePage;
++    (void) flags;
++    return utils::TryUtf8ToUtf16(text, out) && !out.empty();
++#else
+     const int size = static_cast<int>(text.size());
+     const int wideSize = MultiByteToWideChar(
+         codePage, flags, text.data(), size, nullptr, 0);
+@@ -26,12 +33,19 @@ bool Widen(std::string_view text, unsigned codePage, DWORD flags,
+     out.assign(static_cast<std::size_t>(wideSize), L'\0');
+     return MultiByteToWideChar(codePage, flags, text.data(), size,
+                                out.data(), wideSize) == wideSize;
++#endif
+ }
+ 
+ // An exact conversion fails instead of substituting a best-fit or default
+ // character. UTF-8 accepts neither check, and needs neither.
+ bool Narrow(const std::wstring &wide, unsigned codePage, bool exact,
+             std::string &out) {
++#ifdef __EMSCRIPTEN__
++    (void) codePage;
++    (void) exact;
++    out = utils::ToString(wide);
++    return !out.empty() || wide.empty();
++#else
+     const int wideSize = static_cast<int>(wide.size());
+     const DWORD flags = exact ? WC_NO_BEST_FIT_CHARS : 0;
+     BOOL usedDefault = FALSE;
+@@ -44,6 +58,7 @@ bool Narrow(const std::wstring &wide, unsigned codePage, bool exact,
+     return WideCharToMultiByte(codePage, flags, wide.data(), wideSize,
+                                out.data(), size, nullptr, defaulted) == size &&
+         !usedDefault;
++#endif
+ }
+ 
+ } // namespace

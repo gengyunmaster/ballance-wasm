@@ -1,0 +1,35 @@
+diff --git a/Cursor.cpp b/Cursor.cpp
+index e3cbd48..4c18ebe 100644
+--- a/Cursor.cpp
++++ b/Cursor.cpp
+@@ -34,7 +34,12 @@ void SdlInputManager::EnsureCursorVisible(CKBOOL iShow)
+ 
+ CKBOOL SdlInputManager::GetCursorVisibility()
+ {
++#ifdef __EMSCRIPTEN__
++    // The game draws its own cursor after hiding the native one.
++    return SDL_GetMouseFocus() != NULL;
++#else
+     return m_ShowCursor;
++#endif
+ }
+ 
+ VXCURSOR_POINTER SdlInputManager::GetSystemCursor()
+diff --git a/Mouse.cpp b/Mouse.cpp
+index abccd02..f07ff0c 100644
+--- a/Mouse.cpp
++++ b/Mouse.cpp
+@@ -39,9 +39,12 @@ void SdlInputManager::CKMouse::Poll(CKBOOL pause)
+         return;
+     }
+ 
+-    // Get current mouse position (global screen coordinates)
+     float x, y;
++#ifdef __EMSCRIPTEN__
++    SDL_GetMouseState(&x, &y);
++#else
+     SDL_GetGlobalMouseState(&x, &y);
++#endif
+     m_Position.x = x;
+     m_Position.y = y;
+ 

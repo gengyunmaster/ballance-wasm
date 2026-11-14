@@ -1,0 +1,29 @@
+diff --git a/src/CKParameter.cpp b/src/CKParameter.cpp
+index e598eab..96a333f 100644
+--- a/src/CKParameter.cpp
++++ b/src/CKParameter.cpp
+@@ -49,6 +49,13 @@ CKERROR CKParameter::SetValue(const void *buf, int size) {
+ CKERROR CKParameter::CopyValue(CKParameter *param, CKBOOL UpdateParam) {
+     if (!param) return CKERR_INVALIDPARAMETER;
+     if (!IsCompatibleWith(param)) return CKERR_INVALIDPARAMETERTYPE;
++    if (!m_ParamType || !param->m_ParamType)
++        return !m_ParamType && !param->m_ParamType ? CK_OK : CKERR_NOTINITIALIZED;
++    if (!m_ParamType->CopyFunction) {
++        if (m_Buffer && param->m_Buffer && m_Size > 0)
++            memcpy(m_Buffer, param->m_Buffer, m_Size);
++        return CK_OK;
++    }
+ 
+     if (UpdateParam) {
+         if ((param->m_ObjectFlags & CK_PARAMETEROUT_PARAMOP) != 0) {
+@@ -384,7 +391,9 @@ CKERROR CKParameter::Load(CKStateChunk *chunk, CKFile *file) {
+     // Read and process data
+     CKDWORD paramState = chunk->ReadDword();
+     if (!m_ParamType) {
+-        m_Context->OutputToConsoleExBeep("%s : Unknown Parameter Type (DLL declaring this parameter may be missing)", m_Name);
++        m_Context->OutputToConsoleExBeep(
++            "%s : Unknown Parameter Type %08X %08X (DLL declaring this parameter may be missing)",
++            m_Name ? m_Name : "", paramGUID.d1, paramGUID.d2);
+         return CKERR_INVALIDPARAMETERTYPE;
+     }
+ 

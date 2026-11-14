@@ -1,0 +1,19 @@
+diff --git a/src/ModMenu/ModsMenuEntry.cpp b/src/ModMenu/ModsMenuEntry.cpp
+index a68a3c3d..6f444427 100644
+--- a/src/ModMenu/ModsMenuEntry.cpp
++++ b/src/ModMenu/ModsMenuEntry.cpp
+@@ -214,7 +214,13 @@ void ModsMenuEntry::BeginLoad(Behavior::Session &behavior,
+     const auto *textFlags = flags
+         ? std::get_if<std::int32_t>(&flags->Data) : nullptr;
+     if (!textFlags) {
+-        logger.Error("Cannot read the Options menu text style");
++        logger.Error("Cannot read the Options menu text style: error=%d, hasValue=%d, state=%d, type=%08x:%08x, valueKind=%d, %s",
++                     flags.Code(), flags.HasValue(),
++                     flags.HasValue() ? static_cast<int>(flags->State) : -1,
++                     flags.HasValue() ? flags->Type.d1 : 0,
++                     flags.HasValue() ? flags->Type.d2 : 0,
++                     flags.HasValue() ? static_cast<int>(flags->Data.index()) : -1,
++                     flags.GetStatus().Message.c_str());
+         return;
+     }
+ 

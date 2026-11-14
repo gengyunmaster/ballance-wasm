@@ -1,0 +1,15 @@
+diff --git a/src/Behavior/Core/Parameter.cpp b/src/Behavior/Core/Parameter.cpp
+index 651537ae..5f3c1d41 100644
+--- a/src/Behavior/Core/Parameter.cpp
++++ b/src/Behavior/Core/Parameter.cpp
+@@ -173,6 +173,10 @@ Type Describe(CKParameterManager *manager, CKGUID type) {
+ 
+     if (Derived(manager, type, CKPGUID_OBJECT))
+         result.ValueForm = Form::Object;
++    else if ((description->dwFlags & (CKPARAMETERTYPE_FLAGS | CKPARAMETERTYPE_ENUMS)) != 0 &&
++             description->DefaultSize == sizeof(std::int32_t) &&
++             !OwnsStoredValue(*description))
++        result.ValueForm = Form::Int32;
+     // These manager-defined domains store one integer. Their callbacks name
+     // or initialise that integer; only a registered destructor would make
+     // caller-supplied bytes unsafe.

@@ -1,0 +1,24 @@
+diff --git a/mods/IVP/src/Mod.cpp b/mods/IVP/src/Mod.cpp
+index d37fbf9d..525bb0ac 100644
+--- a/mods/IVP/src/Mod.cpp
++++ b/mods/IVP/src/Mod.cpp
+@@ -144,7 +144,7 @@ public:
+     const char *GetName() override { return "IVP"; }
+     const char *GetAuthor() override { return "Kakuty"; }
+     const char *GetDescription() override {
+-        return "Retail-locked IVP API and native physics object bridge";
++        return "Native IVP physics objects with architecture-specific symbol access";
+     }
+     DECLARE_BML_VERSION;
+ 
+@@ -161,8 +161,8 @@ public:
+                 return;
+             }
+             m_InterfaceRegistered = true;
+-            GetLogger()->Info("Bound retail physics_RT.dll: timestamp=%08X size=%u symbols=%u",
+-                              info.ImageTimestamp, info.ImageSize,
++            GetLogger()->Info("Native IVP object bridge ready: architecture=%s symbols=%u",
++                              info.Architecture == BML_IVP_ARCH_WASM32 ? "wasm32" : "x86",
+                               info.FunctionSymbolCount);
+         } else {
+             GetLogger()->Error("Cannot bind the supported retail physics_RT.dll: %s",

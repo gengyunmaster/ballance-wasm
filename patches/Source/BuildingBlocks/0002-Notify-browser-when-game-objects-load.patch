@@ -1,0 +1,51 @@
+diff --git a/Narratives/Behaviors/ObjectLoader.cpp b/Narratives/Behaviors/ObjectLoader.cpp
+index e08777f..703be47 100644
+--- a/Narratives/Behaviors/ObjectLoader.cpp
++++ b/Narratives/Behaviors/ObjectLoader.cpp
+@@ -1,5 +1,13 @@
+ #include "CKAll.h"
+ 
++#ifdef __EMSCRIPTEN__
++#include <emscripten.h>
++extern "C" void BMLWasmOnObjectLoad(
++    CKContext *context, const char *filename, CKBOOL isMap, const char *masterName,
++    CK_CLASSID filterClass, CKBOOL addToScene, CKBOOL reuseMeshes,
++    CKBOOL reuseMaterials, CKBOOL dynamic, XObjectArray *objects, CKObject *masterObject);
++#endif
++
+ CKERROR CreateObjectLoaderProto(CKBehaviorPrototype **pproto);
+ int ObjectLoader(const CKBehaviorContext &context);
+ CKERROR ObjectLoaderCB(const CKBehaviorContext &behcontext);
+@@ -136,6 +144,13 @@ int ObjectLoader(const CKBehaviorContext &behcontext)
+         behcontext.Context->GetPathManager()->ResolveFileName(filename, DATA_PATH_IDX, -1);
+         if (ctx->Load(filename.Str(), array, loadoptions) != CK_OK)
+         {
++#ifdef __EMSCRIPTEN__
++            CKBehavior *ownerScript = beh->GetOwnerScript();
++            CKBOOL isMap = ownerScript && ownerScript->GetName() &&
++                           strcmp(ownerScript->GetName(), "Levelinit_build") == 0;
++            BMLWasmOnObjectLoad(ctx, filename.Str(), isMap, mastername, cid, addtoscene,
++                                reuseMeshes, reuseMaterials, dynamic, nullptr, nullptr);
++#endif
+             DeleteCKObjectArray(array);
+             beh->ActivateOutput(2);
+             return CKBR_OK;
+@@ -223,6 +238,18 @@ int ObjectLoader(const CKBehaviorContext &behcontext)
+ 
+         DeleteCKObjectArray(array);
+         beh->SetOutputParameterObject(1, masterobject);
++#ifdef __EMSCRIPTEN__
++        CKBehavior *ownerScript = beh->GetOwnerScript();
++        CKBOOL isMap = ownerScript && ownerScript->GetName() &&
++                       strcmp(ownerScript->GetName(), "Levelinit_build") == 0;
++        BMLWasmOnObjectLoad(ctx, fname, isMap, mastername, cid, addtoscene,
++                            reuseMeshes, reuseMaterials, dynamic, oarray, masterobject);
++        EM_ASM({
++            globalThis.dispatchEvent?.(new CustomEvent("ballance:object-loaded", {
++                detail: UTF8ToString($0),
++            }));
++        }, filename.Str());
++#endif
+     }
+ 
+     // Unloading

@@ -1,0 +1,53 @@
+diff --git a/src/CKRasterizer/CKFFPLib/Interface/CKBuiltinShaderIdentity.h b/src/CKRasterizer/CKFFPLib/Interface/CKBuiltinShaderIdentity.h
+index d794cdad..8f09743c 100644
+--- a/src/CKRasterizer/CKFFPLib/Interface/CKBuiltinShaderIdentity.h
++++ b/src/CKRasterizer/CKFFPLib/Interface/CKBuiltinShaderIdentity.h
+@@ -29,4 +29,11 @@ constexpr CKDWORD CKFFNativeInterfaceHash()
+ static constexpr CKDWORD CKFF_SHADER_NATIVE_INTERFACE_HASH =
+     CKFFNativeInterfaceHash();
+
++inline CKDWORD CKFFShaderInterfaceHash(CK_SHADER_FORMAT format)
++{
++    return format == CKRST_SHADER_FORMAT_BGFX
++        ? CKFF_SHADER_INTERFACE_HASH
++        : CKFF_SHADER_NATIVE_INTERFACE_HASH;
++}
++
+ #endif
+diff --git a/src/CKRasterizer/CKFFPLib/Interface/CKBuiltinShaders.h b/src/CKRasterizer/CKFFPLib/Interface/CKBuiltinShaders.h
+index 257e7a5d..d13c4759 100644
+--- a/src/CKRasterizer/CKFFPLib/Interface/CKBuiltinShaders.h
++++ b/src/CKRasterizer/CKFFPLib/Interface/CKBuiltinShaders.h
+@@ -31,7 +31,7 @@ struct CKFFShaderSet {
+
+     bool Matches(CK_SHADER_FORMAT format, CK_SHADER_PROFILE profile) const {
+         if (format == CKRST_SHADER_FORMAT_UNKNOWN || profile == CKRST_SHADER_PROFILE_UNKNOWN ||
+-            ABIVersion != CKFF_SHADER_ABI_VERSION || InterfaceHash != CKFF_SHADER_NATIVE_INTERFACE_HASH)
++            ABIVersion != CKFF_SHADER_ABI_VERSION || InterfaceHash != CKFFShaderInterfaceHash(format))
+             return false;
+         for (unsigned i = 0; i < CKRST_BUILTIN_SHADER_COUNT; ++i) {
+             const CKShaderDesc &shader = Shaders[i];
+diff --git a/src/CKRasterizer/CKFFPLib/Interface/CKRasterizerContextEnums.h b/src/CKRasterizer/CKFFPLib/Interface/CKRasterizerContextEnums.h
+index 6f926469..578b11ef 100644
+--- a/src/CKRasterizer/CKFFPLib/Interface/CKRasterizerContextEnums.h
++++ b/src/CKRasterizer/CKFFPLib/Interface/CKRasterizerContextEnums.h
+@@ -44,6 +44,7 @@ typedef uint32_t CK_SHADER_FORMAT;
+ typedef uint32_t CK_SHADER_PROFILE;
+
+ #define CKRST_SHADER_FORMAT_UNKNOWN  0u
++#define CKRST_SHADER_FORMAT_BGFX     CKRST_MAKEFOURCC('B', 'G', 'F', 'X')
+ #define CKRST_SHADER_FORMAT_SPIRV    CKRST_MAKEFOURCC('S', 'P', 'V', 'B')
+ #define CKRST_SHADER_FORMAT_DXBC     CKRST_MAKEFOURCC('D', 'X', 'B', 'C')
+ #define CKRST_SHADER_FORMAT_DXIL     CKRST_MAKEFOURCC('D', 'X', 'I', 'L')
+@@ -60,8 +61,11 @@ typedef uint32_t CK_SHADER_PROFILE;
+
+ #define CKRST_SHADER_TARGET_NDC_MINUS_ONE_TO_ONE 0x00000001u
+ #define CKRST_SHADER_TARGET_ORIGIN_BOTTOM_LEFT    0x00000002u
++#define CKRST_SHADER_TARGET_MANUAL_LOD            0x00000004u
++#define CKRST_SHADER_TARGET_MANUAL_ANISOTROPY     0x00000008u
+ #define CKRST_SHADER_TARGET_MANUAL_VOLUME_ANISO   0x00000010u
+ #define CKRST_SHADER_TARGET_MANUAL_BORDER         0x00000020u
++#define CKRST_SHADER_TARGET_MANUAL_DEPTH_COMPARE  0x00000040u
+ #define CKRST_SHADER_TARGET_MANUAL_COMPARE_BIAS   0x00000080u
+
+ // ---------------------------------------------------------------------------

@@ -1,0 +1,15 @@
+diff --git a/src/Behavior/Install/Selection.cpp b/src/Behavior/Install/Selection.cpp
+index 2f86591b..55463f7e 100644
+--- a/src/Behavior/Install/Selection.cpp
++++ b/src/Behavior/Install/Selection.cpp
+@@ -659,6 +659,10 @@ Status Selections::ProcessFrame() {
+         if (!status &&
+             record.Value.RestoreFailure().Code == Error::Busy)
+             record.Dirty = true;
++        if (!status) {
++            status.Message += " [Behavior Plan '" + record.Value.Key().Name +
++                              "', Script selection '" + record.Value.Target().Name + "']";
++        }
+         if (!status && first)
+             first = status;
+         ++item;

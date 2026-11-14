@@ -1,0 +1,13 @@
+diff --git a/src/Behavior/CKEdit.h b/src/Behavior/CKEdit.h
+index 08ae4670..e6523fc3 100644
+--- a/src/Behavior/CKEdit.h
++++ b/src/Behavior/CKEdit.h
+@@ -73,6 +73,8 @@ private:
+     std::shared_ptr<Journal> m_Journal;
+ 
+     friend class CKEdit;
++    template <typename Match>
++    friend bool AnyOwned(const Journal &journal, Match &&match);
+ };
+ 
+ // The CK2 adapter for one live graph. Patch requests made by an author

@@ -1,0 +1,3 @@
+#pragma once
+
+#define BML_WASM_VERSION "@BML_WASM_VERSION@"

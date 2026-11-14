@@ -1,0 +1,12 @@
+diff --git a/mods/IVP/include/BML/IVP.h b/mods/IVP/include/BML/IVP.h
+index 30e5a2b1..e53da9cc 100644
+--- a/mods/IVP/include/BML/IVP.h
++++ b/mods/IVP/include/BML/IVP.h
+@@ -25,6 +25,7 @@ BML_BEGIN_CDECLS
+ #define BML_IVP_CAP_ORIGINAL_DLL_LOCK    0x00000020u
+ 
+ #define BML_IVP_ARCH_X86 1u
++#define BML_IVP_ARCH_WASM32 2u
+ 
+ #define BML_IVP_SYMBOL_FUNCTION          0x00000001u
+ #define BML_IVP_SYMBOL_IDA_NAMED         0x00000002u
